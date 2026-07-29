@@ -1,0 +1,42 @@
+{
+  "name": "bitbucket-axi",
+  "version": "0.1.0",
+  "description": "Agent-facing Bitbucket Cloud CLI with compact TOON output",
+  "type": "module",
+  "bin": {
+    "bitbucket-axi": "./dist/bin/bitbucket-axi.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc && node -e \"require('node:fs').chmodSync('dist/bin/bitbucket-axi.js', 0o755)\"",
+    "test": "vitest run",
+    "check": "npm run build && npm test",
+    "dev": "tsx bin/bitbucket-axi.ts",
+    "prepublishOnly": "npm run check"
+  },
+  "keywords": [
+    "bitbucket",
+    "cli",
+    "agent",
+    "axi",
+    "toon"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@toon-format/toon": "^2.1.0",
+    "axi-sdk-js": "^0.1.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
