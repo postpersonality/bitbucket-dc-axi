@@ -446,15 +446,21 @@ export async function homeCommand(_args: string[], ctx?: RepoContext): Promise<R
     bitbucketRequest(`${repoPath(ctx)}/pipelines`, { query: { pagelen: 3, sort: "-created_on" } }),
   ]);
   const repoObject = object(repo);
-  const prRows = jsonArray(object(prs)["values"]).map((item) => prListRow(object(item), []));
-  const pipelineRows = jsonArray(object(pipelines)["values"]).map((item) => pipelineListRow(object(item), []));
+  const prsObject = object(prs);
+  const pipelinesObject = object(pipelines);
+  const prRows = jsonArray(prsObject["values"]).map((item) => prListRow(object(item), []));
+  const pipelineRows = jsonArray(pipelinesObject["values"]).map((item) => pipelineListRow(object(item), []));
   return {
     repository: text(repoObject, "full_name") || ctx.nwo,
     open_pull_requests: prRows,
     recent_pipelines: pipelineRows,
     help: [
-      `Run \`bitbucket-axi pr list${repoHint(ctx)}\``,
-      `Run \`bitbucket-axi pipeline list${repoHint(ctx)}\``,
+      prRows.length === 0
+        ? `Run \`bitbucket-axi pr create --title "<title>" --source <branch>${repoHint(ctx)}\``
+        : drillHint("pr list", "open pull requests", prRows.length, number(prsObject, "size"), ctx),
+      pipelineRows.length === 0
+        ? `Run \`bitbucket-axi pipeline run --branch <branch>${repoHint(ctx)}\``
+        : drillHint("pipeline list", "pipelines", pipelineRows.length, number(pipelinesObject, "size"), ctx),
     ],
   };
 }
@@ -531,6 +537,13 @@ function requireRepo(ctx?: RepoContext): RepoContext {
 
 function repoHint(ctx: RepoContext): string {
   return ctx.source === "flag" ? ` -R ${ctx.nwo}` : "";
+}
+
+// Drill-in hint for a dashboard preview list. Reveals the true total when the
+// preview is truncated so the agent does not mistake the page size for the count.
+function drillHint(command: string, noun: string, shown: number, total: number | undefined, ctx: RepoContext): string {
+  const base = `Run \`bitbucket-axi ${command}${repoHint(ctx)}\``;
+  return total !== undefined && total > shown ? `${base} for all ${total} ${noun}` : base;
 }
 
 function parseFields(value: string | undefined, allowed: Set<string>, command: string): string[] {

@@ -96,4 +96,12 @@ describe("CLI", () => {
     expect(output).toContain("unknown config subcommand: bogus");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("rejects an unknown flag on a config subcommand", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["config", "status", "--bogus"], stdout });
+    expect(process.exitCode).toBe(2);
+    expect(output).toContain("unknown flag --bogus");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });

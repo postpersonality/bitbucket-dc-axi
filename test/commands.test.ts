@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encode } from "@toon-format/toon";
-import { apiCommand, pipelineCommand, prCommand, repoCommand } from "../src/commands.js";
+import { apiCommand, homeCommand, pipelineCommand, prCommand, repoCommand } from "../src/commands.js";
 import type { RepoContext } from "../src/context.js";
 
 // Credentials are supplied by mocking the credential module so the real OS
@@ -171,5 +171,59 @@ describe("Bitbucket commands", () => {
     await apiCommand(["/repositories/{workspace}/{repo}"], ctx);
     const [url] = fetchMock.mock.calls[0]!;
     expect(String(url)).toBe("https://api.bitbucket.org/2.0/repositories/acme/widgets");
+  });
+
+  it("home reveals the total when the dashboard preview is truncated", async () => {
+    fetchMock.mockImplementation((url) => {
+      const u = String(url);
+      if (u.endsWith("repositories/acme/widgets")) return Promise.resolve(response({ full_name: "acme/widgets" }));
+      if (u.includes("/pullrequests?")) return Promise.resolve(response({ size: 50, values: [
+        { id: 1, title: "a", state: "OPEN", author: { display_name: "A" } },
+        { id: 2, title: "b", state: "OPEN", author: { display_name: "B" } },
+        { id: 3, title: "c", state: "OPEN", author: { display_name: "C" } },
+      ] }));
+      if (u.includes("/pipelines?")) return Promise.resolve(response({ size: 12, values: [{
+        uuid: "{1}", build_number: 1, state: { result: { name: "SUCCESSFUL" } },
+        target: { ref_name: "main", commit: { hash: "x" } },
+      }] }));
+      return Promise.resolve(response({}));
+    });
+    const toon = encode(await homeCommand([], ctx));
+    expect(toon).toContain("open_pull_requests[3]");
+    expect(toon).toContain("for all 50 open pull requests");
+    expect(toon).toContain("for all 12 pipelines");
+  });
+
+  it("home omits the total hint and suggests creating when the preview is empty", async () => {
+    fetchMock.mockImplementation((url) => {
+      const u = String(url);
+      if (u.endsWith("repositories/acme/widgets")) return Promise.resolve(response({ full_name: "acme/widgets" }));
+      if (u.includes("/pullrequests?")) return Promise.resolve(response({ size: 0, values: [] }));
+      if (u.includes("/pipelines?")) return Promise.resolve(response({ size: 0, values: [] }));
+      return Promise.resolve(response({}));
+    });
+    const toon = encode(await homeCommand([], ctx));
+    expect(toon).not.toContain("for all");
+    expect(toon).toContain("pr create");
+    expect(toon).toContain("pipeline run");
+  });
+
+  it("home omits the total hint when every item fits the preview", async () => {
+    fetchMock.mockImplementation((url) => {
+      const u = String(url);
+      if (u.endsWith("repositories/acme/widgets")) return Promise.resolve(response({ full_name: "acme/widgets" }));
+      if (u.includes("/pullrequests?")) return Promise.resolve(response({ size: 2, values: [
+        { id: 1, title: "a", state: "OPEN", author: { display_name: "A" } },
+        { id: 2, title: "b", state: "OPEN", author: { display_name: "B" } },
+      ] }));
+      if (u.includes("/pipelines?")) return Promise.resolve(response({ size: 1, values: [{
+        uuid: "{1}", build_number: 1, state: { result: { name: "SUCCESSFUL" } },
+        target: { ref_name: "main", commit: { hash: "x" } },
+      }] }));
+      return Promise.resolve(response({}));
+    });
+    const toon = encode(await homeCommand([], ctx));
+    expect(toon).not.toContain("for all");
+    expect(toon).toContain("pr list");
   });
 });
