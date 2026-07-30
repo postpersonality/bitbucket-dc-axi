@@ -6,3 +6,4 @@ dist/
 .npm-cache/
 coverage/
 .DS_Store
+.codegraph
