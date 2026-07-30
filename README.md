@@ -48,6 +48,10 @@ When omitted, `bitbucket-axi` scans git remotes for a `bitbucket.org` repository
 | `config set --email <email> --token-stdin` | Validate and store API credentials in the OS keychain |
 | `config status` | Show the configured email and credential readiness |
 | `config clear` | Remove the stored credential |
+| `config git set --token-stdin` | Validate and store a separate Git HTTPS token for the credential helper |
+| `config git status` | Show whether the Git HTTPS token is configured |
+| `config git clear` | Remove the stored Git HTTPS token |
+| `credential-helper` | Git credential helper supplying stored HTTPS credentials (invoked by `git`) |
 | `repo view` | Show repository details |
 | `pr list` | List pull requests |
 | `pr view <id>` | Show one pull request; use `--full` for complete text |
@@ -58,6 +62,18 @@ When omitted, `bitbucket-axi` scans git remotes for a `bitbucket.org` repository
 | `api [method] <path>` | Call any Bitbucket Cloud REST API v2.0 path |
 
 Run `bitbucket-axi --help` or `bitbucket-axi <command> --help` for the complete, concise flag reference.
+
+## Git over HTTPS (optional)
+
+The default Git transport is SSH. For HTTPS clones, `bitbucket-axi` can act as a Git credential helper using a separate token stored in the OS keychain (distinct from the API token, so a dedicated app password can be used).
+
+```sh
+printf '%s' "your-git-app-password" | bitbucket-axi config git set --token-stdin
+bitbucket-axi config git status   # shows configured, never the token
+git config --global credential.helper 'bitbucket-axi credential-helper'
+```
+
+The Git token is validated against the same Bitbucket account as the API token (reusing the configured account email as the git username) before it is stored. The helper is read-only and only responds to `bitbucket.org` requests; `git credential store`/`erase` are ignored. Remove it with `bitbucket-axi config git clear`.
 
 ## Examples
 

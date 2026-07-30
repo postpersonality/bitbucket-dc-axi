@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encode } from "@toon-format/toon";
-import { apiCommand, homeCommand, pipelineCommand, prCommand, repoCommand } from "../src/commands.js";
+import { apiCommand, homeCommand, pipelineCommand, prCommand, repoCommand } from "../src/commands/index.js";
 import type { RepoContext } from "../src/context.js";
 
 // Credentials are supplied by mocking the credential module so the real OS

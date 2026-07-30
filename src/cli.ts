@@ -7,22 +7,24 @@ import { stripRepoFlag } from "./args.js";
 import {
   API_HELP,
   CONFIG_HELP,
+  CREDENTIAL_HELPER_HELP,
   PIPELINE_HELP,
   PR_HELP,
   REPO_HELP,
   apiCommand,
   configCommand,
+  credentialHelperCommand,
   homeCommand,
   pipelineCommand,
   prCommand,
   repoCommand,
-} from "./commands.js";
+} from "./commands/index.js";
 import { resolveRepo, type RepoContext } from "./context.js";
 
 export const DESCRIPTION = "Inspect repositories, pull requests, and pipelines in Bitbucket Cloud with agent-efficient output.";
 export const TOP_HELP = `usage: bitbucket-axi [command] [args] [flags]
-commands[5]:
-  repo view, pr list|view|create, pipeline list|view|run, api, config set|status|clear
+commands[6]:
+  repo view, pr list|view|create, pipeline list|view|run, api, config set|status|clear|git, credential-helper
 flags[3]:
   -R/--repo <workspace/repo> (after command), --help, -v/-V/--version
 examples[4]:
@@ -39,6 +41,7 @@ const HELP: Record<string, string> = {
   pipeline: PIPELINE_HELP,
   api: API_HELP,
   config: CONFIG_HELP,
+  "credential-helper": CREDENTIAL_HELPER_HELP,
 };
 
 type Handler = (args: string[], ctx?: RepoContext) => Promise<Record<string, unknown>>;
@@ -65,6 +68,9 @@ export async function main(options: {
       pipeline: wrap(pipelineCommand),
       api: wrap(apiCommand),
       config: configCommand,
+      // Read-only Git credential helper: returns raw protocol text (not TOON),
+      // so it is registered without repo-context wrapping.
+      "credential-helper": (args) => credentialHelperCommand(args),
       // Shadow the SDK's update command: this deliberately bounded release has no updater.
       update: async () => {
         throw new AxiError("Unknown command: update", "VALIDATION_ERROR", [

@@ -16,7 +16,7 @@ vi.mock("@napi-rs/keyring", () => ({
 }));
 
 import { basicAuthHeader, bitbucketRequest, validateCredentials } from "../src/client.js";
-import { configClear, configSet, configStatus, readTokenFromStdin } from "../src/commands.js";
+import { configClear, configSet, configStatus, readTokenFromStdin } from "../src/commands/index.js";
 import { clearCredentials, loadCredentials, saveCredentials } from "../src/credentials.js";
 
 function response(body: unknown, status = 200): Response {

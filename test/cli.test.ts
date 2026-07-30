@@ -34,7 +34,7 @@ describe("CLI", () => {
   it("shows concise top-level help", async () => {
     await main({ argv: ["--help"], stdout });
     expect(output).toBe(TOP_HELP);
-    expect(output).toContain("commands[5]");
+    expect(output).toContain("commands[6]");
     expect(output).toContain("config set|status|clear");
   });
 
@@ -102,6 +102,22 @@ describe("CLI", () => {
     await main({ argv: ["config", "status", "--bogus"], stdout });
     expect(process.exitCode).toBe(2);
     expect(output).toContain("unknown flag --bogus");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows credential-helper help without reading stdin or credentials", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["credential-helper", "--help"], stdout });
+    expect(output).toContain("Git credential helper");
+    expect(output).toContain("credential.helper");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a missing git subcommand under config", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["config", "git"], stdout });
+    expect(process.exitCode).toBe(2);
+    expect(output).toContain("config git subcommand is required");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

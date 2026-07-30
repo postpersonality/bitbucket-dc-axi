@@ -9,6 +9,9 @@ export interface Credentials {
 // Single keyring entry holds both values as JSON so they are retrieved together.
 const SERVICE = "bitbucket-axi";
 const ACCOUNT = "bitbucket-cloud";
+// Separate entry for the optional Git HTTP credential helper token. Stored
+// independently from the API token so a dedicated Git/app-password can be used.
+const ACCOUNT_GIT = "bitbucket-cloud-git";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -20,10 +23,38 @@ function entry(): Entry {
   return new Entry(SERVICE, ACCOUNT);
 }
 
+function gitEntry(): Entry {
+  return new Entry(SERVICE, ACCOUNT_GIT);
+}
+
 export function loadCredentials(): Credentials | null {
+  return readStored(entry());
+}
+
+export function saveCredentials(creds: Credentials): void {
+  writeStored(entry(), creds);
+}
+
+export function clearCredentials(): void {
+  removeStored(entry());
+}
+
+export function loadGitCredentials(): Credentials | null {
+  return readStored(gitEntry());
+}
+
+export function saveGitCredentials(creds: Credentials): void {
+  writeStored(gitEntry(), creds);
+}
+
+export function clearGitCredentials(): void {
+  removeStored(gitEntry());
+}
+
+function readStored(e: Entry): Credentials | null {
   let raw: string | null;
   try {
-    raw = entry().getPassword();
+    raw = e.getPassword();
   } catch (error) {
     throw keyringError(error);
   }
@@ -50,17 +81,17 @@ export function loadCredentials(): Credentials | null {
   return null;
 }
 
-export function saveCredentials(creds: Credentials): void {
+function writeStored(e: Entry, creds: Credentials): void {
   try {
-    entry().setPassword(JSON.stringify(creds));
+    e.setPassword(JSON.stringify(creds));
   } catch (error) {
     throw keyringError(error);
   }
 }
 
-export function clearCredentials(): void {
+function removeStored(e: Entry): void {
   try {
-    entry().deleteCredential();
+    e.deleteCredential();
   } catch (error) {
     // deleteCredential returns false when no entry exists; a NoEntry-style throw
     // is also treated as success so `config clear` stays idempotent.
