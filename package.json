@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "description": "Agent-facing Bitbucket Cloud CLI with compact TOON output",
   "type": "module",
+  "author": "Kit Chan",
   "bin": {
     "bitbucket-axi": "./dist/bin/bitbucket-axi.js"
   },
