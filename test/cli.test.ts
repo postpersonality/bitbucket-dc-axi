@@ -68,7 +68,7 @@ describe("CLI", () => {
     expect(output).toContain("bin:");
     expect(output).toContain("description:");
     expect(output).toMatch(/repository: (not detected|[^\n]+)/);
-    expect(output).toContain("config set --email <email> --token-stdin");
+    expect(output).toContain("config set` in a terminal");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -76,6 +76,8 @@ describe("CLI", () => {
     mockedLoad.mockReturnValue(null);
     await main({ argv: ["config", "--help"], stdout });
     expect(output).toContain("bitbucket-axi config <subcommand>");
+    expect(output).toContain("bitbucket-axi config set\n");
+    expect(output).toContain("token-producing-command");
     expect(output).toContain("--token-stdin");
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -85,7 +87,16 @@ describe("CLI", () => {
     await main({ argv: ["config", "status"], stdout });
     expect(process.exitCode).toBeUndefined();
     expect(output).toContain("ready: false");
-    expect(output).toContain("config set --email <email> --token-stdin");
+    expect(output).toContain("config set` in a terminal");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("refuses non-interactive config setup with structured guidance", async () => {
+    await main({ argv: ["config", "set"], stdout });
+    expect(process.exitCode).toBe(2);
+    expect(output).toContain("interactive setup requires a terminal");
+    expect(output).toContain("--token-stdin");
+    expect(output).not.toContain("API token:");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

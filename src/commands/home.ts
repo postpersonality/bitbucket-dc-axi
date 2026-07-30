@@ -11,7 +11,7 @@ export async function homeCommand(_args: string[], ctx?: RepoContext): Promise<R
       auth: creds ? "configured" : "not configured",
       help: [
         "Run `bitbucket-axi repo view -R <workspace/repo>`",
-        ...(creds ? [] : ["Run `bitbucket-axi config set --email <email> --token-stdin`"]),
+        ...(creds ? [] : ["Run `bitbucket-axi config set` in a terminal"]),
         "Run `bitbucket-axi --help` for commands",
       ],
     };
@@ -21,7 +21,7 @@ export async function homeCommand(_args: string[], ctx?: RepoContext): Promise<R
       repository: ctx.nwo,
       auth: "not configured",
       help: [
-        "Run `bitbucket-axi config set --email <email> --token-stdin`",
+        "Run `bitbucket-axi config set` in a terminal",
         "Run `bitbucket-axi --help` for commands",
       ],
     };

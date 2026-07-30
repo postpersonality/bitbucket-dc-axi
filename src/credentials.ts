@@ -113,7 +113,7 @@ function keyringError(_error: unknown): AxiError {
     "CREDENTIAL_STORE_ERROR",
     [
       "Ensure the OS keychain is unlocked and accessible",
-      "Run `bitbucket-axi config set --email <email> --token-stdin` again",
+      "Run `bitbucket-axi config set` again",
     ],
   );
 }

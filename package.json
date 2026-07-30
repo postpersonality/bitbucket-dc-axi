@@ -4,6 +4,13 @@
   "description": "Agent-facing Bitbucket Cloud CLI with compact TOON output",
   "type": "module",
   "author": "Kit Chan",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kitwon/bitbucket-axi.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "bin": {
     "bitbucket-axi": "./dist/bin/bitbucket-axi.js"
   },
@@ -17,6 +24,7 @@
     "test": "vitest run",
     "check": "npm run build && npm test",
     "dev": "tsx bin/bitbucket-axi.ts",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run check"
   },
   "keywords": [

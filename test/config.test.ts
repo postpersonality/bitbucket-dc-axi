@@ -26,6 +26,32 @@ function response(body: unknown, status = 200): Response {
   });
 }
 
+function stdinInput(value: string): PassThrough {
+  const input = new PassThrough();
+  input.end(value);
+  return input;
+}
+
+function terminalInput(
+  answers: Array<[prompt: string, answer: string]>,
+  output: PassThrough,
+): PassThrough {
+  const input = new PassThrough();
+  Object.assign(input, { isTTY: true });
+  Object.assign(output, { isTTY: true });
+  let transcript = "";
+  let next = 0;
+  output.on("data", (chunk) => {
+    transcript += chunk.toString();
+    const answer = answers[next];
+    if (answer && transcript.includes(answer[0])) {
+      next++;
+      setImmediate(() => input.write(`${answer[1]}\n`));
+    }
+  });
+  return input;
+}
+
 describe("credential store", () => {
   const fetchMock = vi.fn<typeof fetch>();
 
@@ -126,7 +152,7 @@ describe("config set", () => {
     fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com", is_primary: true }] }));
     const output = await configSet(
       ["--email", "you@example.com", "--token-stdin"],
-      async () => "secret-token",
+      { stdin: stdinInput("secret-token") },
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "https://api.bitbucket.org/2.0/user/emails",
@@ -142,7 +168,7 @@ describe("config set", () => {
   it("does not store the credential when Bitbucket rejects the token", async () => {
     fetchMock.mockResolvedValue(response({ error: { message: "bad credentials" } }, 401));
     await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], async () => "bad-token"),
+      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("bad-token") }),
     ).rejects.toThrow("Bitbucket rejected the email or API token");
     expect(keyring.setPassword).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -151,22 +177,60 @@ describe("config set", () => {
   it("does not store the credential when the email does not match the account", async () => {
     fetchMock.mockResolvedValue(response({ values: [{ email: "someone-else@example.com" }] }));
     await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], async () => "tok"),
+      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("tok") }),
     ).rejects.toThrow("does not belong to this API token's account");
     expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("requires --token-stdin and never accepts the token as an argument", async () => {
-    await expect(
-      configSet(["--email", "you@example.com"], async () => "tok"),
-    ).rejects.toThrow("--token-stdin is required");
+  it("collects a missing email and hidden token interactively", async () => {
+    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com", is_primary: true }] }));
+    const stderr = new PassThrough();
+    let prompts = "";
+    stderr.on("data", (chunk) => { prompts += chunk.toString(); });
+    const stdin = terminalInput([
+      ["Atlassian account email:", "you@example.com"],
+      ["Bitbucket API token:", "secret-token"],
+    ], stderr);
+
+    const output = await configSet([], { stdin, stderr });
+
+    expect(output).toMatchObject({ config: { email: "you@example.com", status: "configured" } });
+    expect(prompts).toContain("Atlassian account email:");
+    expect(prompts).toContain("Bitbucket API token:");
+    expect(prompts).not.toContain("secret-token");
+  });
+
+  it("skips the email prompt when --email is supplied", async () => {
+    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com" }] }));
+    const stderr = new PassThrough();
+    let prompts = "";
+    stderr.on("data", (chunk) => { prompts += chunk.toString(); });
+    const stdin = terminalInput([["Bitbucket API token:", "secret-token"]], stderr);
+
+    await configSet(["--email", "you@example.com"], { stdin, stderr });
+
+    expect(prompts).not.toContain("Atlassian account email:");
+    expect(prompts).toContain("Bitbucket API token:");
+    expect(prompts).not.toContain("secret-token");
+  });
+
+  it("refuses non-interactive setup without --token-stdin", async () => {
+    await expect(configSet([], { stdin: new PassThrough(), stderr: new PassThrough() }))
+      .rejects.toThrow("interactive setup requires a terminal");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(keyring.setPassword).not.toHaveBeenCalled();
+  });
+
+  it("keeps --email required for --token-stdin automation", async () => {
+    await expect(configSet(["--token-stdin"], { stdin: stdinInput("secret-token") }))
+      .rejects.toThrow("--email is required");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
   it("fails clearly when the token read from stdin is empty", async () => {
     await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], async () => ""),
+      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("") }),
     ).rejects.toThrow("no API token received on stdin");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(keyring.setPassword).not.toHaveBeenCalled();
@@ -174,7 +238,7 @@ describe("config set", () => {
 
   it("rejects an invalid email before any network or storage call", async () => {
     await expect(
-      configSet(["--email", "not-an-email", "--token-stdin"], async () => "tok"),
+      configSet(["--email", "not-an-email", "--token-stdin"], { stdin: stdinInput("tok") }),
     ).rejects.toThrow("invalid email");
     expect(fetchMock).not.toHaveBeenCalled();
     expect(keyring.setPassword).not.toHaveBeenCalled();

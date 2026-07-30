@@ -16,20 +16,28 @@ npm install -g .
 
 `bitbucket-axi` stores your Bitbucket Cloud API token in your operating system credential manager (macOS Keychain, Windows Credential Manager, or libsecret on Linux). It never writes the token to a plaintext file and never accepts it as a command-line argument.
 
-Create a [Bitbucket Cloud API token](https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/) with the `read:user:bitbucket` scope (used once by `config set` to verify the token belongs to your account) plus the repository, pull request, and pipeline scopes your commands need. Then store it:
+Create a [Bitbucket Cloud API token](https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/) with the `read:user:bitbucket` scope (used once by `config set` to verify the token belongs to your account) plus the repository, pull request, and pipeline scopes your commands need. Then run the interactive setup:
 
 ```sh
-printf '%s' "your-api-token" | bitbucket-axi config set --email you@example.com --token-stdin
+bitbucket-axi config set
 ```
 
-Use the **Atlassian account email** that owns the token (not your Bitbucket username). The token is read from stdin, validated against Bitbucket's current-user endpoint, and only then written to the keychain. Verify setup at any time:
+Use the **Atlassian account email** that owns the token (not your Bitbucket username). You can supply it up front with `bitbucket-axi config set --email you@example.com`. The API token is prompted for without echo, validated against Bitbucket's current-user endpoint, and only then written to the keychain.
+
+For non-interactive automation, pipe the token from your secret manager. The email remains explicit, and `--token-stdin` prevents prompting:
+
+```sh
+token-producing-command | bitbucket-axi config set --email you@example.com --token-stdin
+```
+
+Verify setup at any time:
 
 ```sh
 bitbucket-axi config status   # shows the configured email and readiness, never the token
 bitbucket-axi config clear    # removes the stored credential (idempotent)
 ```
 
-Every network-backed command requires a stored credential. If none is configured, the command makes no API call and returns an auth-required result pointing at `bitbucket-axi config set --email <email> --token-stdin`.
+Every network-backed command requires a stored credential. If none is configured, the command makes no API call and returns an auth-required result pointing at `bitbucket-axi config set`.
 
 ## Select a repository
 
@@ -45,7 +53,7 @@ When omitted, `bitbucket-axi` scans git remotes for a `bitbucket.org` repository
 
 | Command | Purpose |
 | --- | --- |
-| `config set --email <email> --token-stdin` | Validate and store API credentials in the OS keychain |
+| `config set [--email <email>]` | Interactively validate and store API credentials in the OS keychain |
 | `config status` | Show the configured email and credential readiness |
 | `config clear` | Remove the stored credential |
 | `config git set --token-stdin` | Validate and store a separate Git HTTPS token for the credential helper |
@@ -68,7 +76,7 @@ Run `bitbucket-axi --help` or `bitbucket-axi <command> --help` for the complete,
 The default Git transport is SSH. For HTTPS clones, `bitbucket-axi` can act as a Git credential helper using a separate token stored in the OS keychain (distinct from the API token, so a dedicated app password can be used).
 
 ```sh
-printf '%s' "your-git-app-password" | bitbucket-axi config git set --token-stdin
+token-producing-command | bitbucket-axi config git set --token-stdin
 bitbucket-axi config git status   # shows configured, never the token
 git config --global credential.helper 'bitbucket-axi credential-helper'
 ```
@@ -100,3 +108,13 @@ pnpm run dev -- --help
 ```
 
 Tests mock HTTP responses and the OS credential store; they require no live Bitbucket credentials and never touch the real keychain.
+
+## Publishing
+
+From a clean checkout, verify the packed file list with `npm pack --dry-run`. Maintainers publish the current version with:
+
+```sh
+npm publish
+```
+
+The publish lifecycle rebuilds the executable and runs the full project checks. Bump the version separately before publishing a release.

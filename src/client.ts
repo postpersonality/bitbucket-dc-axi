@@ -27,7 +27,7 @@ export async function bitbucketRequest(
     throw new AxiError(
       "Bitbucket authentication is not configured",
       "AUTH_ERROR",
-      ["Run `bitbucket-axi config set --email <email> --token-stdin`"],
+      ["Run `bitbucket-axi config set` in a terminal"],
     );
   }
 
@@ -86,12 +86,12 @@ export async function validateCredentials(email: string, token: string): Promise
   if (response.status === 403) {
     throw new AxiError("The API token lacks the scope to verify your identity", "PERMISSION_ERROR", [
       "Recreate the API token with the `read:user:bitbucket` (or `email`) scope",
-      "Retry `bitbucket-axi config set --email <email> --token-stdin`",
+      "Retry `bitbucket-axi config set`",
     ]);
   }
   if (!response.ok) {
     throw new AxiError(`Bitbucket credential verification failed (${response.status})`, "API_ERROR", [
-      "Retry `bitbucket-axi config set --email <email> --token-stdin`",
+      "Retry `bitbucket-axi config set`",
     ]);
   }
 
@@ -99,7 +99,7 @@ export async function validateCredentials(email: string, token: string): Promise
   if (!emails.includes(email.toLowerCase())) {
     throw new AxiError("The email does not belong to this API token's account", "AUTH_ERROR", [
       "Use the Atlassian account email that owns the API token",
-      "Retry `bitbucket-axi config set --email <email> --token-stdin`",
+      "Retry `bitbucket-axi config set`",
     ]);
   }
 }
@@ -135,7 +135,7 @@ function parseResponse(text: string): Json {
 function apiError(status: number, payload: Json, creds: Credentials): AxiError {
   if (status === 401) {
     return new AxiError("Bitbucket authentication failed", "AUTH_ERROR", [
-      "The stored API token was rejected; run `bitbucket-axi config set --email <email> --token-stdin` to update it",
+      "The stored API token was rejected; run `bitbucket-axi config set` to update it",
     ]);
   }
   if (status === 403) {

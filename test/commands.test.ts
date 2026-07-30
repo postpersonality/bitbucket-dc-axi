@@ -59,7 +59,7 @@ describe("Bitbucket commands", () => {
       caught = error;
     }
     expect(caught).toBeInstanceOf(Error);
-    expect(JSON.stringify(caught)).toContain("bitbucket-axi config set --email <email> --token-stdin");
+    expect(JSON.stringify(caught)).toContain("bitbucket-axi config set` in a terminal");
   });
 
   it("translates an HTTP authentication failure", async () => {
