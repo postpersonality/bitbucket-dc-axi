@@ -2,8 +2,9 @@
 
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
-- Run `npm run check` for the full TypeScript build and mocked-HTTP test suite.
-- The public command surface and help live in `src/cli.ts` and `src/commands.ts`; keep this first release deliberately limited to repository view, pull requests, pipelines, and raw API access.
+- Run `pnpm run check` for the full TypeScript build and mocked-HTTP test suite. This project uses pnpm; `pnpm-lock.yaml` is the source of truth (no `package-lock.json`).
+- The public command surface and help live in `src/cli.ts` and `src/commands.ts`; keep this release deliberately limited to repository view, pull requests, pipelines, raw API access, and `config` credential management.
+- Bitbucket Cloud API credentials (Atlassian account email + API token, HTTP Basic `email:token`) are stored in the OS credential manager by `src/credentials.ts` via `@napi-rs/keyring`. `src/client.ts` loads them at the API boundary before every request; there is no environment-variable or plaintext fallback for API operations. `config set --email <email> --token-stdin` validates against `/user/emails` before storing. Tests mock `@napi-rs/keyring` (or the `credentials` module) and `fetch`; they never touch the real keychain or make live calls.
 
 ## Maintaining this file
 

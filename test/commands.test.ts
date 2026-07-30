@@ -3,6 +3,17 @@ import { encode } from "@toon-format/toon";
 import { apiCommand, pipelineCommand, prCommand, repoCommand } from "../src/commands.js";
 import type { RepoContext } from "../src/context.js";
 
+// Credentials are supplied by mocking the credential module so the real OS
+// keychain is never touched by these command tests.
+vi.mock("../src/credentials.js", () => ({
+  loadCredentials: vi.fn(),
+  saveCredentials: vi.fn(),
+  clearCredentials: vi.fn(),
+  isValidEmail: vi.fn(),
+}));
+import { loadCredentials } from "../src/credentials.js";
+const mockedLoad = vi.mocked(loadCredentials);
+
 const ctx: RepoContext = {
   workspace: "acme",
   repo: "widgets",
@@ -23,27 +34,62 @@ describe("Bitbucket commands", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
-    process.env["ATLASSIAN_EMAIL"] = "agent@example.com";
-    process.env["BITBUCKET_API_TOKEN"] = "test-token";
+    mockedLoad.mockReset();
+    mockedLoad.mockReturnValue({ email: "agent@example.com", token: "test-token" });
   });
 
   afterEach(() => {
-    delete process.env["ATLASSIAN_EMAIL"];
-    delete process.env["BITBUCKET_API_TOKEN"];
     vi.unstubAllGlobals();
   });
 
-  it("validates missing authentication before making a request", async () => {
-    delete process.env["BITBUCKET_API_TOKEN"];
+  it("makes no API call when credentials are not configured", async () => {
+    mockedLoad.mockReturnValue(null);
     await expect(repoCommand(["view"], ctx)).rejects.toThrow(
       "Bitbucket authentication is not configured",
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("points to the config command when credentials are missing", async () => {
+    mockedLoad.mockReturnValue(null);
+    let caught: unknown;
+    try {
+      await repoCommand(["view"], ctx);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(Error);
+    expect(JSON.stringify(caught)).toContain("bitbucket-axi config set --email <email> --token-stdin");
+  });
+
   it("translates an HTTP authentication failure", async () => {
     fetchMock.mockResolvedValue(response({ error: { message: "bad credentials" } }, 401));
     await expect(repoCommand(["view"], ctx)).rejects.toThrow("Bitbucket authentication failed");
+  });
+
+  it("sends a Basic auth header built from the stored email and token", async () => {
+    fetchMock.mockResolvedValue(response({ size: 0, pagelen: 30, values: [] }));
+    await prCommand(["list"], ctx);
+    const [, init] = fetchMock.mock.calls[0]!;
+    const headers = init?.headers as Record<string, string>;
+    expect(headers["Authorization"]).toBe(
+      `Basic ${Buffer.from("agent@example.com:test-token").toString("base64")}`,
+    );
+  });
+
+  it("never leaks the token in error output", async () => {
+    fetchMock.mockResolvedValue(response({ error: { message: "test-token visible here" } }, 500));
+    let caught: unknown;
+    try {
+      await repoCommand(["view"], ctx);
+    } catch (error) {
+      caught = error;
+    }
+    const rendered = encode({
+      error: (caught as { message: string }).message,
+      code: (caught as { code: string }).code,
+    });
+    expect(rendered).not.toContain("test-token");
   });
 
   it("prints a definitive empty pull request list", async () => {

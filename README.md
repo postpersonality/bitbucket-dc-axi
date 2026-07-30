@@ -14,14 +14,22 @@ npm install -g .
 
 ## Authenticate
 
-Create a Bitbucket Cloud API token with the repository, pull request, and pipeline scopes needed for your commands, then set both variables:
+`bitbucket-axi` stores your Bitbucket Cloud API token in your operating system credential manager (macOS Keychain, Windows Credential Manager, or libsecret on Linux). It never writes the token to a plaintext file and never accepts it as a command-line argument.
+
+Create a [Bitbucket Cloud API token](https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/) with the `read:user:bitbucket` scope (used once by `config set` to verify the token belongs to your account) plus the repository, pull request, and pipeline scopes your commands need. Then store it:
 
 ```sh
-export ATLASSIAN_EMAIL="you@example.com"
-export BITBUCKET_API_TOKEN="your-api-token"
+printf '%s' "your-api-token" | bitbucket-axi config set --email you@example.com --token-stdin
 ```
 
-The CLI is non-interactive. Credentials are used only for HTTP Basic authentication to `https://api.bitbucket.org/2.0/` and are never printed.
+Use the **Atlassian account email** that owns the token (not your Bitbucket username). The token is read from stdin, validated against Bitbucket's current-user endpoint, and only then written to the keychain. Verify setup at any time:
+
+```sh
+bitbucket-axi config status   # shows the configured email and readiness, never the token
+bitbucket-axi config clear    # removes the stored credential (idempotent)
+```
+
+Every network-backed command requires a stored credential. If none is configured, the command makes no API call and returns an auth-required result pointing at `bitbucket-axi config set --email <email> --token-stdin`.
 
 ## Select a repository
 
@@ -37,6 +45,9 @@ When omitted, `bitbucket-axi` scans git remotes for a `bitbucket.org` repository
 
 | Command | Purpose |
 | --- | --- |
+| `config set --email <email> --token-stdin` | Validate and store API credentials in the OS keychain |
+| `config status` | Show the configured email and credential readiness |
+| `config clear` | Remove the stored credential |
 | `repo view` | Show repository details |
 | `pr list` | List pull requests |
 | `pr view <id>` | Show one pull request; use `--full` for complete text |
@@ -67,9 +78,9 @@ List commands default to compact fields. Add supported columns with `--fields`. 
 ## Development
 
 ```sh
-npm install
-npm run check
-npm run dev -- --help
+pnpm install
+pnpm run check
+pnpm run dev -- --help
 ```
 
-Tests mock HTTP responses and require no live Bitbucket credentials.
+Tests mock HTTP responses and the OS credential store; they require no live Bitbucket credentials and never touch the real keychain.

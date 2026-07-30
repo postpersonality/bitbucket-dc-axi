@@ -7,7 +7,8 @@ import {
   stringFlags,
   type ParsedArgs,
 } from "./args.js";
-import { bitbucketRequest, isObject, type Json, type JsonObject } from "./client.js";
+import { bitbucketRequest, isObject, validateCredentials, type Json, type JsonObject } from "./client.js";
+import { clearCredentials, isValidEmail, loadCredentials, saveCredentials } from "./credentials.js";
 import type { RepoContext } from "./context.js";
 
 export const REPO_HELP = `usage: bitbucket-axi repo view [flags]
@@ -59,6 +60,22 @@ examples[3]:
   bitbucket-axi api /repositories/{workspace}/{repo}
   bitbucket-axi api GET /user
   bitbucket-axi api GET /repositories/{workspace}/{repo}/refs/branches --field pagelen=10
+`;
+
+export const CONFIG_HELP = `usage: bitbucket-axi config <subcommand> [flags]
+description: Manage Bitbucket Cloud API credentials stored in the OS credential manager.
+subcommands[3]:
+  set, status, clear
+flags{set}:
+  --email <atlassian-account-email> (required), --token-stdin (read API token from stdin)
+flags{status}:
+  (none)
+flags{clear}:
+  (none)
+examples[3]:
+  bitbucket-axi config set --email you@example.com --token-stdin
+  bitbucket-axi config status
+  bitbucket-axi config clear
 `;
 
 const PR_LIST_FIELDS = new Set(["source", "destination", "created", "url", "draft", "comments"]);
@@ -314,18 +331,112 @@ export async function apiCommand(args: string[], ctx?: RepoContext): Promise<Rec
   };
 }
 
+export async function configCommand(args: string[]): Promise<Record<string, Json>> {
+  const subcommand = args[0];
+  if (!subcommand) throw subcommandError("config", ["set", "status", "clear"]);
+  if (subcommand === "set") return configSet(args.slice(1));
+  if (subcommand === "status") return configStatus(args.slice(1));
+  if (subcommand === "clear") return configClear(args.slice(1));
+  throw subcommandError("config", ["set", "status", "clear"], subcommand);
+}
+
+export async function configSet(
+  args: string[],
+  readToken: () => Promise<string> = readTokenFromStdin,
+): Promise<Record<string, Json>> {
+  const parsed = parseArgs(
+    args,
+    [{ name: "--email" }, { name: "--token-stdin", boolean: true }],
+    "bitbucket-axi config set",
+  );
+  noPositionals(parsed, "bitbucket-axi config set");
+  const email = requiredFlag(parsed, "--email");
+  if (!isValidEmail(email))
+    throw new AxiError(`invalid email: ${email}`, "VALIDATION_ERROR", [
+      "Use your Atlassian account email address",
+    ]);
+  if (!boolFlag(parsed, "--token-stdin"))
+    throw new AxiError("--token-stdin is required", "VALIDATION_ERROR", [
+      "Pipe the API token via stdin: `bitbucket-axi config set --email <email> --token-stdin`",
+    ]);
+  const token = (await readToken()).trim();
+  if (!token)
+    throw new AxiError("no API token received on stdin", "VALIDATION_ERROR", [
+      "Pipe the API token via stdin: `echo <token> | bitbucket-axi config set --email <email> --token-stdin`",
+    ]);
+  await validateCredentials(email, token);
+  saveCredentials({ email, token });
+  return {
+    config: { email, status: "configured" },
+    help: [
+      "Run `bitbucket-axi config status` to verify",
+      "Run `bitbucket-axi repo view -R <workspace/repo>` to use the CLI",
+    ],
+  };
+}
+
+export async function configStatus(args: string[]): Promise<Record<string, Json>> {
+  const parsed = parseArgs(args, [], "bitbucket-axi config status");
+  noPositionals(parsed, "bitbucket-axi config status");
+  const creds = loadCredentials();
+  if (!creds) {
+    return {
+      config: { ready: false },
+      help: ["Run `bitbucket-axi config set --email <email> --token-stdin`"],
+    };
+  }
+  return { config: { email: creds.email, ready: true } };
+}
+
+export async function configClear(args: string[]): Promise<Record<string, Json>> {
+  const parsed = parseArgs(args, [], "bitbucket-axi config clear");
+  noPositionals(parsed, "bitbucket-axi config clear");
+  const present = loadCredentials() !== null;
+  clearCredentials();
+  return { config: { status: present ? "cleared" : "already clear" } };
+}
+
+const MAX_TOKEN_BYTES = 8192;
+
+export async function readTokenFromStdin(
+  stream: NodeJS.ReadableStream = process.stdin,
+): Promise<string> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of stream) {
+    const bytes = chunk instanceof Buffer ? chunk : Buffer.from(chunk);
+    total += bytes.length;
+    if (total > MAX_TOKEN_BYTES) {
+      throw new AxiError("API token on stdin is too large", "VALIDATION_ERROR", [
+        "Pipe a single valid Bitbucket API token via stdin",
+      ]);
+    }
+    chunks.push(bytes);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 export async function homeCommand(_args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
+  const creds = loadCredentials();
   if (!ctx) {
     return {
       repository: "not detected",
-      help: ["Run `bitbucket-axi repo view -R <workspace/repo>`", "Run `bitbucket-axi --help` for commands"],
+      auth: creds ? "configured" : "not configured",
+      help: [
+        "Run `bitbucket-axi repo view -R <workspace/repo>`",
+        ...(creds ? [] : ["Run `bitbucket-axi config set --email <email> --token-stdin`"]),
+        "Run `bitbucket-axi --help` for commands",
+      ],
     };
   }
-  if (!process.env["ATLASSIAN_EMAIL"] || !process.env["BITBUCKET_API_TOKEN"]) {
+  if (!creds) {
     return {
       repository: ctx.nwo,
-      auth: "missing ATLASSIAN_EMAIL or BITBUCKET_API_TOKEN",
-      help: ["Set both authentication variables to load the live dashboard"],
+      auth: "not configured",
+      help: [
+        "Run `bitbucket-axi config set --email <email> --token-stdin`",
+        "Run `bitbucket-axi --help` for commands",
+      ],
     };
   }
 

@@ -6,10 +6,12 @@ import { AxiError, runAxiCli } from "axi-sdk-js";
 import { stripRepoFlag } from "./args.js";
 import {
   API_HELP,
+  CONFIG_HELP,
   PIPELINE_HELP,
   PR_HELP,
   REPO_HELP,
   apiCommand,
+  configCommand,
   homeCommand,
   pipelineCommand,
   prCommand,
@@ -19,8 +21,8 @@ import { resolveRepo, type RepoContext } from "./context.js";
 
 export const DESCRIPTION = "Inspect repositories, pull requests, and pipelines in Bitbucket Cloud with agent-efficient output.";
 export const TOP_HELP = `usage: bitbucket-axi [command] [args] [flags]
-commands[4]:
-  repo view, pr list|view|create, pipeline list|view|run, api
+commands[5]:
+  repo view, pr list|view|create, pipeline list|view|run, api, config set|status|clear
 flags[3]:
   -R/--repo <workspace/repo> (after command), --help, -v/-V/--version
 examples[4]:
@@ -36,6 +38,7 @@ const HELP: Record<string, string> = {
   pr: PR_HELP,
   pipeline: PIPELINE_HELP,
   api: API_HELP,
+  config: CONFIG_HELP,
 };
 
 type Handler = (args: string[], ctx?: RepoContext) => Promise<Record<string, unknown>>;
@@ -61,6 +64,7 @@ export async function main(options: {
       pr: wrap(prCommand),
       pipeline: wrap(pipelineCommand),
       api: wrap(apiCommand),
+      config: configCommand,
       // Shadow the SDK's update command: this deliberately bounded release has no updater.
       update: async () => {
         throw new AxiError("Unknown command: update", "VALIDATION_ERROR", [

@@ -1,6 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main, TOP_HELP } from "../src/cli.js";
 
+// Credentials are mocked so the home view and command routing never touch the
+// real OS keychain.
+vi.mock("../src/credentials.js", () => ({
+  loadCredentials: vi.fn(),
+  saveCredentials: vi.fn(),
+  clearCredentials: vi.fn(),
+  isValidEmail: vi.fn(),
+}));
+import { loadCredentials } from "../src/credentials.js";
+const mockedLoad = vi.mocked(loadCredentials);
+
 describe("CLI", () => {
   const fetchMock = vi.fn<typeof fetch>();
   let output = "";
@@ -11,6 +22,8 @@ describe("CLI", () => {
     process.exitCode = undefined;
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
+    mockedLoad.mockReset();
+    mockedLoad.mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -21,7 +34,8 @@ describe("CLI", () => {
   it("shows concise top-level help", async () => {
     await main({ argv: ["--help"], stdout });
     expect(output).toBe(TOP_HELP);
-    expect(output).toContain("commands[4]");
+    expect(output).toContain("commands[5]");
+    expect(output).toContain("config set|status|clear");
   });
 
   it("prints the package version", async () => {
@@ -30,6 +44,7 @@ describe("CLI", () => {
   });
 
   it("rejects unknown arguments before the network", async () => {
+    mockedLoad.mockReturnValue({ email: "agent@example.com", token: "test-token" });
     await main({ argv: ["pr", "list", "--stat", "open", "-R", "acme/widgets"], stdout });
     expect(process.exitCode).toBe(2);
     expect(output).toContain("unknown flag --stat");
@@ -38,6 +53,7 @@ describe("CLI", () => {
   });
 
   it("formats invalid repository selectors without a stack trace", async () => {
+    mockedLoad.mockReturnValue({ email: "agent@example.com", token: "test-token" });
     await main({ argv: ["repo", "view", "-R", "invalid"], stdout });
     expect(process.exitCode).toBe(2);
     expect(output).toContain("invalid repository: invalid");
@@ -47,12 +63,37 @@ describe("CLI", () => {
   });
 
   it("renders a no-argument home view without credentials", async () => {
-    delete process.env["ATLASSIAN_EMAIL"];
-    delete process.env["BITBUCKET_API_TOKEN"];
+    mockedLoad.mockReturnValue(null);
     await main({ argv: [], stdout });
     expect(output).toContain("bin:");
     expect(output).toContain("description:");
     expect(output).toMatch(/repository: (not detected|[^\n]+)/);
+    expect(output).toContain("config set --email <email> --token-stdin");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("shows config command help without credentials or repository context", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["config", "--help"], stdout });
+    expect(output).toContain("bitbucket-axi config <subcommand>");
+    expect(output).toContain("--token-stdin");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports config status without credentials", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["config", "status"], stdout });
+    expect(process.exitCode).toBeUndefined();
+    expect(output).toContain("ready: false");
+    expect(output).toContain("config set --email <email> --token-stdin");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown config subcommand", async () => {
+    mockedLoad.mockReturnValue(null);
+    await main({ argv: ["config", "bogus"], stdout });
+    expect(process.exitCode).toBe(2);
+    expect(output).toContain("unknown config subcommand: bogus");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
