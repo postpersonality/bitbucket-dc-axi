@@ -70,6 +70,13 @@ describe("credential store", () => {
     expect(loadCredentials()).toBeNull();
   });
 
+  it("returns null when the keyring reports a missing entry", () => {
+    keyring.getPassword.mockImplementation(() => {
+      throw new Error("No matching entry found");
+    });
+    expect(loadCredentials()).toBeNull();
+  });
+
   it("returns null for a malformed stored entry instead of throwing", () => {
     keyring.getPassword.mockReturnValue("not-json");
     expect(loadCredentials()).toBeNull();

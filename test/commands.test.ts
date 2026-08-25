@@ -7,12 +7,14 @@ import type { RepoContext } from "../src/context.js";
 // keychain is never touched by these command tests.
 vi.mock("../src/credentials.js", () => ({
   loadCredentials: vi.fn(),
+  loadGitCredentials: vi.fn(),
   saveCredentials: vi.fn(),
   clearCredentials: vi.fn(),
   isValidEmail: vi.fn(),
 }));
-import { loadCredentials } from "../src/credentials.js";
+import { loadCredentials, loadGitCredentials } from "../src/credentials.js";
 const mockedLoad = vi.mocked(loadCredentials);
+const mockedGitLoad = vi.mocked(loadGitCredentials);
 
 const ctx: RepoContext = {
   workspace: "acme",
@@ -35,6 +37,7 @@ describe("Bitbucket commands", () => {
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockReset();
     mockedLoad.mockReset();
+    mockedGitLoad.mockReset();
     mockedLoad.mockReturnValue({ email: "agent@example.com", token: "test-token" });
   });
 
@@ -122,7 +125,10 @@ describe("Bitbucket commands", () => {
     });
   });
 
-  it("creates a pull request with the documented REST body", async () => {
+  it("creates a pull request with the stored API credential", async () => {
+    mockedGitLoad.mockImplementation(() => {
+      throw new Error("Git credentials are not configured");
+    });
     fetchMock.mockResolvedValue(response({
       id: 7,
       title: "Fix auth",
@@ -139,6 +145,10 @@ describe("Bitbucket commands", () => {
     ], ctx);
     const [, init] = fetchMock.mock.calls[0]!;
     expect(init?.method).toBe("POST");
+    expect((init?.headers as Record<string, string>)["Authorization"]).toBe(
+      `Basic ${Buffer.from("agent@example.com:test-token").toString("base64")}`,
+    );
+    expect(mockedGitLoad).not.toHaveBeenCalled();
     expect(JSON.parse(String(init?.body))).toEqual({
       title: "Fix auth",
       source: { branch: { name: "fix/auth" } },

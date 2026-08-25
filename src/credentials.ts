@@ -56,6 +56,7 @@ function readStored(e: Entry): Credentials | null {
   try {
     raw = e.getPassword();
   } catch (error) {
+    if (isNoEntryError(error)) return null;
     throw keyringError(error);
   }
   if (!raw) return null;
