@@ -107,6 +107,17 @@ pnpm run check
 pnpm run dev -- --help
 ```
 
+The installable agent skill is generated from the CLI description and committed at
+`skills/bitbucket-axi/SKILL.md`. Regenerate it after changing the CLI's agent-facing
+description, and use the check mode in validation:
+
+```sh
+pnpm run build:skill
+pnpm run build:skill -- --check
+```
+
+Install the skill with `npx skills add kitwon/bitbucket-axi --skill bitbucket-axi -g`.
+
 Tests mock HTTP responses and the OS credential store; they require no live Bitbucket credentials and never touch the real keychain.
 
 ## Publishing

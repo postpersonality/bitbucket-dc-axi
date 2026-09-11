@@ -16,6 +16,7 @@
   },
   "files": [
     "dist",
+    "skills/bitbucket-axi",
     "README.md",
     "LICENSE"
   ],
@@ -23,6 +24,7 @@
     "build": "tsc && node -e \"require('node:fs').chmodSync('dist/bin/bitbucket-axi.js', 0o755)\"",
     "test": "vitest run",
     "check": "npm run build && npm test",
+    "build:skill": "tsx scripts/build-skill.ts",
     "dev": "tsx bin/bitbucket-axi.ts",
     "prepack": "npm run build",
     "prepublishOnly": "npm run check"
