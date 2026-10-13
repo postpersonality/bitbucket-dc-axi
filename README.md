@@ -67,7 +67,7 @@ bitbucket-dc-axi pr merge 7 --sha 0123456789abcdef0123456789abcdef01234567 --jso
 
 ## Errors and exit codes
 
-Errors are printed to stdout as the same kind of record as a result (`error`, `code`, `help`; server errors add `status` and `details`). Nothing is written to stderr.
+Errors are printed to stdout as the same kind of record as a result (`error`, `code`, `help`; server errors add `status`, `details` and, for a rejected merge, `vetoes`; `NOT_OPEN`, `HEAD_MOVED` and `MERGED_DIFFERENT_HEAD` add `state`, `head` and `sha`). Nothing is written to stderr.
 
 | Exit | `code` |
 | --- | --- |
