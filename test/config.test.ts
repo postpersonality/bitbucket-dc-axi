@@ -1,30 +1,37 @@
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { encode } from "@toon-format/toon";
-import { AxiError } from "axi-sdk-js";
+import { formatError } from "../src/cli.js";
+import { configCommand, type ConfigSetIO } from "../src/commands/config.js";
+import { HOST, REPO, response, run, TOKEN } from "./helpers.js";
 
-// Shared in-memory keyring mock. Tests reset and reprogram these per case so the
-// real OS credential store is never touched.
+vi.mock("node:child_process");
+
 const keyring = vi.hoisted(() => ({
+  Entry: vi.fn(),
   getPassword: vi.fn(),
   setPassword: vi.fn(),
   deleteCredential: vi.fn(),
 }));
+vi.mock("@napi-rs/keyring", () => ({ Entry: keyring.Entry }));
 
-vi.mock("@napi-rs/keyring", () => ({
-  Entry: vi.fn(() => keyring),
-}));
+const fetchMock = vi.fn<typeof fetch>();
+let stderr: ReturnType<typeof vi.spyOn>;
 
-import { basicAuthHeader, bitbucketRequest, validateCredentials } from "../src/client.js";
-import { configClear, configSet, configStatus, readTokenFromStdin } from "../src/commands/index.js";
-import { clearCredentials, loadCredentials, saveCredentials } from "../src/credentials.js";
-
-function response(body: unknown, status = 200): Response {
-  return new Response(body === null ? null : JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-}
+beforeEach(() => {
+  vi.resetAllMocks();
+  keyring.Entry.mockImplementation(() => ({
+    getPassword: keyring.getPassword,
+    setPassword: keyring.setPassword,
+    deleteCredential: keyring.deleteCredential,
+  }));
+  vi.stubGlobal("fetch", fetchMock);
+  stderr = vi.spyOn(process.stderr, "write");
+});
+afterEach(() => {
+  expect(stderr).not.toHaveBeenCalled();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
 
 function stdinInput(value: string): PassThrough {
   const input = new PassThrough();
@@ -32,322 +39,172 @@ function stdinInput(value: string): PassThrough {
   return input;
 }
 
-function terminalInput(
-  answers: Array<[prompt: string, answer: string]>,
-  output: PassThrough,
-): PassThrough {
-  const input = new PassThrough();
-  Object.assign(input, { isTTY: true });
-  Object.assign(output, { isTTY: true });
+// A fake terminal: answers the prompt once it appears on stdout.
+function terminal(answer: string): { stdin: PassThrough & { isTTY: boolean }; stdout: PassThrough & { isTTY: boolean }; written: () => string } {
+  const stdin = Object.assign(new PassThrough(), { isTTY: true });
+  const stdout = Object.assign(new PassThrough(), { isTTY: true });
   let transcript = "";
-  let next = 0;
-  output.on("data", (chunk) => {
+  stdout.on("data", (chunk) => {
     transcript += chunk.toString();
-    const answer = answers[next];
-    if (answer && transcript.includes(answer[0])) {
-      next++;
-      setImmediate(() => input.write(`${answer[1]}\n`));
-    }
+    if (transcript === "Bitbucket access token: ") setImmediate(() => stdin.write(`${answer}\n`));
   });
-  return input;
+  return { stdin, stdout, written: () => transcript };
 }
 
-describe("credential store", () => {
-  const fetchMock = vi.fn<typeof fetch>();
+async function exec(args: string[], io: ConfigSetIO = {}): Promise<{ out: string; code: number }> {
+  try {
+    return { out: JSON.stringify(await configCommand(args, io)), code: 0 };
+  } catch (error) {
+    const { output, exitCode } = formatError(error, true);
+    return { out: output, code: exitCode };
+  }
+}
 
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockReset();
-    keyring.getPassword.mockReset();
-    keyring.setPassword.mockReset();
-    keyring.deleteCredential.mockReset();
-  });
+const RETRY = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("returns null when no credential is stored", () => {
-    keyring.getPassword.mockReturnValue(null);
-    expect(loadCredentials()).toBeNull();
-  });
-
-  it("returns null when the keyring reports a missing entry", () => {
-    keyring.getPassword.mockImplementation(() => {
-      throw new Error("No matching entry found");
-    });
-    expect(loadCredentials()).toBeNull();
-  });
-
-  it("returns null for a malformed stored entry instead of throwing", () => {
-    keyring.getPassword.mockReturnValue("not-json");
-    expect(loadCredentials()).toBeNull();
-  });
-
-  it("loads a stored email and token", () => {
-    keyring.getPassword.mockReturnValue(JSON.stringify({ email: "you@example.com", token: "secret-token" }));
-    expect(loadCredentials()).toEqual({ email: "you@example.com", token: "secret-token" });
-  });
-
-  it("stores both values as a single keychain entry", () => {
-    saveCredentials({ email: "you@example.com", token: "secret-token" });
-    expect(keyring.setPassword).toHaveBeenCalledWith(
-      JSON.stringify({ email: "you@example.com", token: "secret-token" }),
-    );
-  });
-
-  it("translates a keyring failure into a structured error without leaking the native error", () => {
-    keyring.setPassword.mockImplementation(() => {
-      throw new Error("secret-service: D-Bus connection failed\n    at native/stack.ts:1:1");
-    });
-    let caught: unknown;
-    try {
-      saveCredentials({ email: "you@example.com", token: "secret-token" });
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(AxiError);
-    expect((caught as AxiError).message).toBe("Could not access the operating system credential store");
-    expect((caught as AxiError).code).toBe("CREDENTIAL_STORE_ERROR");
-    expect((caught as AxiError).message).not.toContain("secret-service");
-    expect((caught as AxiError).message).not.toContain("D-Bus");
-    expect((caught as Error).stack ?? "").not.toContain("secret-token");
-  });
-
-  it("clearCredentials is idempotent when the entry is already absent", () => {
-    keyring.deleteCredential.mockReturnValue(false);
-    expect(() => clearCredentials()).not.toThrow();
-    expect(keyring.deleteCredential).toHaveBeenCalled();
-  });
-
-  it("clearCredentials treats a NoEntry-style throw as success", () => {
-    keyring.deleteCredential.mockImplementation(() => {
-      throw new Error("No matching entry found");
-    });
-    expect(() => clearCredentials()).not.toThrow();
-  });
-});
-
-describe("missing credentials prevent fetch", () => {
-  const fetchMock = vi.fn<typeof fetch>();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockReset();
-    keyring.getPassword.mockReset();
-  });
-
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("makes no API call when no credential is stored", async () => {
-    keyring.getPassword.mockReturnValue(null);
-    await expect(bitbucketRequest("user")).rejects.toThrow("Bitbucket authentication is not configured");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-});
+function accepted(user?: string): void {
+  fetchMock.mockResolvedValue(response(200, { version: "10.0.1", buildNumber: "10000001" }, user ? { "X-AUSERNAME": user } : {}));
+}
 
 describe("config set", () => {
-  const fetchMock = vi.fn<typeof fetch>();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockReset();
-    keyring.setPassword.mockReset();
+  it("validates and stores a token from stdin", async () => {
+    accepted("jdoe");
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(`${TOKEN}\n`) });
+    expect(code).toBe(0);
+    expect(JSON.parse(out).config).toEqual({ host: HOST, user: "jdoe", version: "10.0.1", status: "configured" });
+    expect(out).not.toContain(TOKEN);
+    expect(keyring.Entry).toHaveBeenCalledWith("bitbucket-dc-axi", HOST, { linux: { store: "secret-service" } });
+    expect(keyring.setPassword).toHaveBeenCalledWith(TOKEN);
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("validates the token and stores the credential in the keychain", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com", is_primary: true }] }));
-    const output = await configSet(
-      ["--email", "you@example.com", "--token-stdin"],
-      { stdin: stdinInput("secret-token") },
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.bitbucket.org/2.0/user/emails",
-      expect.objectContaining({ method: "GET" }),
-    );
-    expect(keyring.setPassword).toHaveBeenCalledWith(
-      JSON.stringify({ email: "you@example.com", token: "secret-token" }),
-    );
-    expect(output).toMatchObject({ config: { email: "you@example.com", status: "configured" } });
-    expect(encode(output)).not.toContain("secret-token");
-  });
-
-  it("does not store the credential when Bitbucket rejects the token", async () => {
-    fetchMock.mockResolvedValue(response({ error: { message: "bad credentials" } }, 401));
-    await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("bad-token") }),
-    ).rejects.toThrow("Bitbucket rejected the email or API token");
-    expect(keyring.setPassword).not.toHaveBeenCalled();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("does not store the credential when the email does not match the account", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "someone-else@example.com" }] }));
-    await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("tok") }),
-    ).rejects.toThrow("does not belong to this API token's account");
+  it("rejects a token without X-AUSERNAME", async () => {
+    accepted();
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(JSON.parse(out)).toMatchObject({ code: "AUTH_ERROR", help: RETRY });
+    expect(code).toBe(4);
     expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("collects a missing email and hidden token interactively", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com", is_primary: true }] }));
-    const stderr = new PassThrough();
-    let prompts = "";
-    stderr.on("data", (chunk) => { prompts += chunk.toString(); });
-    const stdin = terminalInput([
-      ["Atlassian account email:", "you@example.com"],
-      ["Bitbucket API token:", "secret-token"],
-    ], stderr);
-
-    const output = await configSet([], { stdin, stderr });
-
-    expect(output).toMatchObject({ config: { email: "you@example.com", status: "configured" } });
-    expect(prompts).toContain("Atlassian account email:");
-    expect(prompts).toContain("Bitbucket API token:");
-    expect(prompts).not.toContain("secret-token");
+  it("rejects a token the server refuses", async () => {
+    fetchMock.mockResolvedValue(response(401, { errors: [{ message: "Authentication failed" }] }));
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(JSON.parse(out)).toMatchObject({ code: "AUTH_ERROR", help: RETRY });
+    expect(code).toBe(4);
+    expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("skips the email prompt when --email is supplied", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com" }] }));
-    const stderr = new PassThrough();
-    let prompts = "";
-    stderr.on("data", (chunk) => { prompts += chunk.toString(); });
-    const stdin = terminalInput([["Bitbucket API token:", "secret-token"]], stderr);
-
-    await configSet(["--email", "you@example.com"], { stdin, stderr });
-
-    expect(prompts).not.toContain("Atlassian account email:");
-    expect(prompts).toContain("Bitbucket API token:");
-    expect(prompts).not.toContain("secret-token");
+  it("hints at --host when the server answers 404", async () => {
+    fetchMock.mockResolvedValue(response(404));
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(JSON.parse(out)).toMatchObject({
+      code: "NOT_FOUND",
+      help: [`Check that \`--host ${HOST}\` is the address of the Bitbucket Data Center server`],
+    });
+    expect(code).toBe(1);
+    expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("refuses non-interactive setup without --token-stdin", async () => {
-    await expect(configSet([], { stdin: new PassThrough(), stderr: new PassThrough() }))
-      .rejects.toThrow("interactive setup requires a terminal");
+  it("prompts on stdout in a terminal without echoing the token", async () => {
+    accepted("jdoe");
+    const tty = terminal(TOKEN);
+    const { out, code } = await exec(["set", "--host", HOST], { stdin: tty.stdin, stdout: tty.stdout });
+    expect(code).toBe(0);
+    expect(tty.written()).toBe("Bitbucket access token: \n");
+    expect(out).not.toContain(TOKEN);
+    expect(keyring.setPassword).toHaveBeenCalledWith(TOKEN);
+  });
+
+  it.each([
+    ["stdin is a terminal but stdout is not", { stdin: Object.assign(new PassThrough(), { isTTY: true }), stdout: new PassThrough() }],
+    ["neither is a terminal", { stdin: new PassThrough(), stdout: new PassThrough() }],
+  ])("requires --token-stdin when %s", async (_case, io) => {
+    const { out, code } = await exec(["set", "--host", HOST], io);
+    expect(JSON.parse(out).code).toBe("VALIDATION_ERROR");
+    expect(out).toContain("--token-stdin");
+    expect(code).toBe(2);
+    expect(keyring.Entry).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("keeps --email required for --token-stdin automation", async () => {
-    await expect(configSet(["--token-stdin"], { stdin: stdinInput("secret-token") }))
-      .rejects.toThrow("--email is required");
+  it("lowercases the host before touching the keychain", async () => {
+    accepted("jdoe");
+    await exec(["set", "--host", "BITBUCKET.example.com", "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(keyring.Entry).toHaveBeenCalledWith("bitbucket-dc-axi", HOST, expect.anything());
+    keyring.Entry.mockClear();
+    await exec(["status", "--host", "BITBUCKET.example.com"]);
+    expect(keyring.Entry).toHaveBeenCalledWith("bitbucket-dc-axi", HOST, expect.anything());
+  });
+
+  it.each([[["set"]], [["set", "--host", "https://h"]], [["set", "--host", "h/x"]], [["set", "--host", HOST, "--bogus"]]])(
+    "rejects %j before the keychain and network",
+    async (args) => {
+      const { out, code } = await run(["config", ...args, "--json"]);
+      expect(JSON.parse(out).help?.length).toBeGreaterThan(0);
+      expect(code).toBe(2);
+      expect(keyring.Entry).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([["empty", "\n"], ["oversized", "x".repeat(8193)]])("rejects an %s token", async (_case, input) => {
+    const { code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(input) });
+    expect(code).toBe(2);
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
-  it("fails clearly when the token read from stdin is empty", async () => {
-    await expect(
-      configSet(["--email", "you@example.com", "--token-stdin"], { stdin: stdinInput("") }),
-    ).rejects.toThrow("no API token received on stdin");
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(keyring.setPassword).not.toHaveBeenCalled();
-  });
-
-  it("rejects an invalid email before any network or storage call", async () => {
-    await expect(
-      configSet(["--email", "not-an-email", "--token-stdin"], { stdin: stdinInput("tok") }),
-    ).rejects.toThrow("invalid email");
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(keyring.setPassword).not.toHaveBeenCalled();
-  });
-
-  it("rejects a token on stdin that exceeds the bounded size", async () => {
-    const stream = new PassThrough();
-    stream.end(Buffer.alloc(9000, 97)); // 9000 'a' bytes > 8192 limit
-    await expect(readTokenFromStdin(stream)).rejects.toThrow("too large");
+  it("reports a missing Secret Service", async () => {
+    accepted("jdoe");
+    keyring.setPassword.mockImplementation(() => {
+      throw new Error("Platform secure storage failure: DBus error");
+    });
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(JSON.parse(out).code).toBe("CREDENTIAL_STORE_ERROR");
+    expect(code).toBe(3);
   });
 });
 
-describe("config status", () => {
-  beforeEach(() => keyring.getPassword.mockReset());
-
-  it("reports the configured email and readiness, never the token", async () => {
-    keyring.getPassword.mockReturnValue(JSON.stringify({ email: "you@example.com", token: "secret-token" }));
-    const toon = encode(await configStatus([]));
-    expect(toon).toContain("you@example.com");
-    expect(toon).toContain("ready: true");
-    expect(toon).not.toContain("secret-token");
-  });
-
-  it("reports not ready when no credential is configured", async () => {
+describe("config status and clear", () => {
+  it("reports the entry without the network", async () => {
+    keyring.getPassword.mockReturnValue(TOKEN);
+    const configured = await run(["config", "status", "--host", HOST]);
+    expect(configured.out).toContain("status: configured");
+    expect(configured.code).toBe(0);
     keyring.getPassword.mockReturnValue(null);
-    const toon = encode(await configStatus([]));
-    expect(toon).toContain("ready: false");
-    expect(toon).not.toContain("you@example.com");
-    expect(toon).toContain("config set");
-  });
-});
-
-describe("config clear", () => {
-  beforeEach(() => {
-    keyring.getPassword.mockReset();
-    keyring.deleteCredential.mockReset();
+    const missing = await run(["config", "status", "--host", HOST]);
+    expect(missing.out).toContain("status: not configured");
+    expect(missing.code).toBe(0);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("removes a stored credential", async () => {
-    keyring.getPassword.mockReturnValue(JSON.stringify({ email: "you@example.com", token: "tok" }));
-    keyring.deleteCredential.mockReturnValue(true);
-    const output = await configClear([]);
-    expect(output).toMatchObject({ config: { status: "cleared" } });
-    expect(keyring.deleteCredential).toHaveBeenCalled();
+  it("answers in JSON", async () => {
+    keyring.getPassword.mockReturnValue(TOKEN);
+    expect(JSON.parse((await run(["config", "status", "--host", HOST, "--json"])).out).config.status).toBe("configured");
   });
 
-  it("is idempotent when the store is already empty", async () => {
-    keyring.getPassword.mockReturnValue(null);
-    keyring.deleteCredential.mockReturnValue(false);
-    const output = await configClear([]);
-    expect(output).toMatchObject({ config: { status: "already clear" } });
-  });
-});
-
-describe("credential validation", () => {
-  const fetchMock = vi.fn<typeof fetch>();
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", fetchMock);
-    fetchMock.mockReset();
+  it("clears idempotently", async () => {
+    keyring.deleteCredential.mockReturnValueOnce(true).mockReturnValueOnce(false);
+    expect((await run(["config", "clear", "--host", HOST])).out).toContain("status: cleared");
+    const again = await run(["config", "clear", "--host", HOST]);
+    expect(again.out).toContain("already clear");
+    expect(again.code).toBe(0);
   });
 
-  afterEach(() => vi.unstubAllGlobals());
-
-  it("constructs the Basic auth header as email:token base64 and never leaks the token", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "you@example.com" }] }));
-    await validateCredentials("you@example.com", "secret-token");
-    const init = fetchMock.mock.calls[0]![1] as RequestInit;
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
-      basicAuthHeader("you@example.com", "secret-token"),
-    );
-    expect((init.headers as Record<string, string>)["Authorization"]).toBe(
-      `Basic ${Buffer.from("you@example.com:secret-token").toString("base64")}`,
-    );
+  it.each(
+    ["set", "status", "clear"].flatMap((subcommand) =>
+      [["-R", REPO], ["--repo", REPO], [`-R=${REPO}`], [`--repo=${REPO}`]].map((flag) => [subcommand, flag] as const),
+    ),
+  )("rejects config %s with %j like any unknown flag", async (subcommand, flag) => {
+    const unknown = JSON.parse((await run(["config", subcommand, "--host", HOST, "--bogus", "--json"])).out);
+    const { out, code } = await run(["config", subcommand, "--host", HOST, ...flag, "--json"]);
+    expect(JSON.parse(out)).toEqual({ ...unknown, error: `unknown flag ${flag[0]!.split("=")[0]} for bitbucket-dc-axi config ${subcommand}` });
+    expect(code).toBe(2);
+    expect(keyring.Entry).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("accepts a token whose account owns the email", async () => {
-    fetchMock.mockResolvedValue(response({ values: [{ email: "You@Example.com", is_primary: true }] }));
-    await expect(validateCredentials("you@example.com", "tok")).resolves.toBeUndefined();
-  });
-
-  it("rejects a 401 without leaking the token in the error", async () => {
-    fetchMock.mockResolvedValue(response({ error: { message: "bad secret-token" } }, 401));
-    let caught: unknown;
-    try {
-      await validateCredentials("you@example.com", "secret-token");
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(AxiError);
-    expect((caught as AxiError).code).toBe("AUTH_ERROR");
-    expect((caught as AxiError).message).not.toContain("secret-token");
-  });
-
-  it("reports a missing scope on 403 with an actionable suggestion", async () => {
-    fetchMock.mockResolvedValue(response({ error: { message: "forbidden" } }, 403));
-    await expect(validateCredentials("you@example.com", "tok")).rejects.toThrow("lacks the scope");
-  });
-
-  it("basicAuthHeader encodes email:token as base64", () => {
-    expect(basicAuthHeader("you@example.com", "secret-token")).toBe(
-      `Basic ${Buffer.from("you@example.com:secret-token").toString("base64")}`,
-    );
+  it.each(["git", "bogus"])("rejects config %s", async (subcommand) => {
+    const { out, code } = await run(["config", subcommand]);
+    expect(out).toContain("VALIDATION_ERROR");
+    expect(code).toBe(2);
   });
 });

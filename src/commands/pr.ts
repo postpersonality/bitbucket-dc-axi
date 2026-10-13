@@ -1,136 +1,159 @@
 import { AxiError } from "axi-sdk-js";
 import { boolFlag, parseArgs, positiveInt, stringFlag } from "../args.js";
-import { bitbucketRequest, type Json, type JsonObject } from "../client.js";
-import type { RepoContext } from "../context.js";
-import { actor, branch, compact, exactPositionals, jsonArray, nestedText, noPositionals, number, object, parseFields, positiveId, prListRow, repoHint, repoPath, requiredFlag, requireRepo, subcommandError, text, truncate } from "./utils.js";
+import type { Handler } from "../cli.js";
+import { bitbucketRequest, type ErrorHelp, type Json, type JsonObject } from "../client.js";
+import { requireRepo, resolvePrTarget, type RepoContext } from "../context.js";
+import { buildStats, buildSummary } from "./builds.js";
+import { merge, mergeCheck } from "./merge.js";
+import {
+  exactPositionals,
+  jsonArray,
+  LIST_FIELDS,
+  listRow,
+  noPositionals,
+  object,
+  parseFields,
+  prCore,
+  prPath,
+  prRef,
+  REPO_HELP,
+  repoHint,
+  repoPath,
+  requiredFlag,
+  subcommandError,
+  text,
+  truncate,
+} from "./utils.js";
 
-export const PR_HELP = `usage: bitbucket-axi pr <subcommand> [flags]
-subcommands[3]:
-  list, view <id>, create
+export const PR_HELP = `usage: bitbucket-dc-axi pr <subcommand> [flags]
+subcommands[5]:
+  list, view <id|url>, create, merge-check <id|url>, merge <id|url> --sha <commit>
 flags{list}:
-  --state <open|merged|declined|superseded|all> (default open), --limit <1-100> (default 30), --fields <source,destination,created,url,draft,comments>, -R/--repo <workspace/repo>
+  --state <open|merged|declined|all> (default open), --limit <1-100> (default 30), --fields <source,destination,created,url,draft>, -R/--repo <host>/<PROJECT>/<repo>
 flags{view}:
-  --full, -R/--repo <workspace/repo>
+  --full, -R/--repo <host>/<PROJECT>/<repo> (not with a URL)
 flags{create}:
-  --title <text>, --source <branch>, --destination <branch>, --body <text>, --close-source, -R/--repo <workspace/repo>
-examples[3]:
-  bitbucket-axi pr list --state open
-  bitbucket-axi pr view 42 --full
-  bitbucket-axi pr create --title "Fix auth" --source fix/auth --destination main
+  --title <text>, --source <branch>, --destination <branch> (default: repository default branch), --body <text>, -R/--repo <host>/<PROJECT>/<repo>
+flags{merge-check}:
+  -R/--repo <host>/<PROJECT>/<repo> (not with a URL); read-only, exit 0 even with blockers
+flags{merge}:
+  --sha <full 40-character commit> (required; merges only if it is still the head), -R/--repo <host>/<PROJECT>/<repo> (not with a URL)
+examples[5]:
+  bitbucket-dc-axi pr list --state all --fields url
+  bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json
+  bitbucket-dc-axi pr create --title "Fix login" --source fix/login --body "- fixes the login form"
+  bitbucket-dc-axi pr merge-check 7 --json
+  bitbucket-dc-axi pr merge 7 --sha 0123456789abcdef0123456789abcdef01234567 --json
 `;
 
-const PR_LIST_FIELDS = new Set(["source", "destination", "created", "url", "draft", "comments"]);
+const DESCRIPTION_LIMIT = 700;
+const STATES = ["open", "merged", "declined", "all"];
+const CREATE_HELP: ErrorHelp = {
+  notFound: ["Check the repository selector or the origin remote, and that the source and destination branches exist"],
+};
+
+export const SUBCOMMANDS: Record<string, Handler> = {
+  list: prList,
+  view: prView,
+  create: prCreate,
+  "merge-check": mergeCheck,
+  merge,
+};
 
 export async function prCommand(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
   const subcommand = args[0];
-  if (!subcommand) throw subcommandError("pr", ["list", "view", "create"]);
-  if (subcommand === "list") return prList(args.slice(1), requireRepo(ctx));
-  if (subcommand === "view") return prView(args.slice(1), requireRepo(ctx));
-  if (subcommand === "create") return prCreate(args.slice(1), requireRepo(ctx));
-  throw subcommandError("pr", ["list", "view", "create"], subcommand);
+  const handler = subcommand === undefined ? undefined : SUBCOMMANDS[subcommand];
+  if (!handler) throw subcommandError("pr", Object.keys(SUBCOMMANDS), subcommand);
+  return handler(args.slice(1), ctx);
 }
 
-async function prList(args: string[], ctx: RepoContext): Promise<Record<string, Json>> {
-  const parsed = parseArgs(
-    args,
-    [
-      { name: "--state" },
-      { name: "--limit" },
-      { name: "--fields" },
-    ],
-    "bitbucket-axi pr list",
-  );
-  noPositionals(parsed, "bitbucket-axi pr list");
+async function prList(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
+  const command = "bitbucket-dc-axi pr list";
+  const parsed = parseArgs(args, [{ name: "--state" }, { name: "--limit" }, { name: "--fields" }], command);
+  noPositionals(parsed, command);
   const state = (stringFlag(parsed, "--state") ?? "open").toLowerCase();
-  if (!["open", "merged", "declined", "superseded", "all"].includes(state))
-    throw new AxiError(`invalid --state: ${state}`, "VALIDATION_ERROR", [
-      "Use open, merged, declined, superseded, or all",
-    ]);
+  if (!STATES.includes(state))
+    throw new AxiError(`invalid --state: ${state}`, "VALIDATION_ERROR", [`Use ${STATES.join(", ")}`]);
   const limit = positiveInt(stringFlag(parsed, "--limit"), "--limit", 30);
-  const extras = parseFields(stringFlag(parsed, "--fields"), PR_LIST_FIELDS, "pr list");
-  const payload = object(
-    await bitbucketRequest(`${repoPath(ctx)}/pullrequests`, {
-      query: {
-        pagelen: limit,
-        sort: "-updated_on",
-        state: state === "all" ? undefined : state.toUpperCase(),
-      },
+  const fields = parseFields(stringFlag(parsed, "--fields"), LIST_FIELDS, "pr list");
+  const repo = requireRepo(ctx);
+
+  const page = object(
+    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, {
+      query: { state: state.toUpperCase(), limit, order: "NEWEST" },
+      help: REPO_HELP,
     }),
   );
-  const values = jsonArray(payload["values"]);
-  const rows = values.map((value) => prListRow(object(value), extras));
-  const description = state === "all" ? "pull requests" : `${state} pull requests`;
+  const rows = jsonArray(page["values"]).map((pr) => listRow(object(pr), fields));
   return {
-    count: rows.length === 0
-      ? `0 ${description} found in ${ctx.nwo}`
-      : `${rows.length} of ${number(payload, "size") ?? rows.length} total`,
+    count: rows.length,
     pull_requests: rows,
-    help: rows.length === 0
-      ? [`Run \`bitbucket-axi pr create --title "<title>" --source <branch>${repoHint(ctx)}\``]
-      : [`Run \`bitbucket-axi pr view <id>${repoHint(ctx)}\``],
+    help: [
+      rows.length
+        ? `Run \`bitbucket-dc-axi pr view <id>${repoHint(repo)}\``
+        : `Run \`bitbucket-dc-axi pr create --title "<title>" --source <branch>${repoHint(repo)}\``,
+    ],
   };
 }
 
-async function prView(args: string[], ctx: RepoContext): Promise<Record<string, Json>> {
-  const parsed = parseArgs(args, [{ name: "--full", boolean: true }], "bitbucket-axi pr view");
-  exactPositionals(parsed, 1, "bitbucket-axi pr view <id>");
-  const id = positiveId(parsed.positionals[0]!, "pull request id");
-  const raw = object(await bitbucketRequest(`${repoPath(ctx)}/pullrequests/${id}`));
+async function prView(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
+  const parsed = parseArgs(args, [{ name: "--full", boolean: true }], "bitbucket-dc-axi pr view");
+  exactPositionals(parsed, 1, "bitbucket-dc-axi pr view <id|url>");
+  const value = parsed.positionals[0]!;
+  const target = resolvePrTarget(value, ctx);
+
+  const raw = object(await bitbucketRequest(target.ctx.host, prPath(target.ctx, target.id)));
+  const core = prCore(raw);
+  const counts = await buildStats(target.ctx.host, core.head);
   const description = text(raw, "description");
-  const truncated = !boolFlag(parsed, "--full") && description.length > 700;
+  const truncated = !boolFlag(parsed, "--full") && Array.from(description).length > DESCRIPTION_LIMIT;
   return {
-    pull_request: compact({
-      id: number(raw, "id") ?? id,
-      title: text(raw, "title"),
-      state: text(raw, "state").toLowerCase(),
-      author: actor(raw["author"]),
-      source: branch(raw, "source"),
-      destination: branch(raw, "destination"),
-      draft: raw["draft"] === true ? "yes" : "no",
-      comments: number(raw, "comment_count") ?? 0,
-      created: text(raw, "created_on"),
-      updated: text(raw, "updated_on"),
-      url: nestedText(raw, "links", "html", "href"),
-      description: truncated ? truncate(description, 700) : description || "none",
-    }),
-    ...(truncated ? { help: [`Run \`bitbucket-axi pr view ${id} --full${repoHint(ctx)}\``] } : {}),
+    ...core,
+    description: truncated ? truncate(description, DESCRIPTION_LIMIT) : description,
+    builds: buildSummary(counts),
+    ...(truncated ? { help: [`Run \`bitbucket-dc-axi pr view ${prRef(value, target)} --full\``] } : {}),
   };
 }
 
-async function prCreate(args: string[], ctx: RepoContext): Promise<Record<string, Json>> {
+async function prCreate(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
+  const command = "bitbucket-dc-axi pr create";
   const parsed = parseArgs(
     args,
-    [
-      { name: "--title" },
-      { name: "--source" },
-      { name: "--destination" },
-      { name: "--body" },
-      { name: "--close-source", boolean: true },
-    ],
-    "bitbucket-axi pr create",
+    [{ name: "--title" }, { name: "--source" }, { name: "--destination" }, { name: "--body" }],
+    command,
   );
-  noPositionals(parsed, "bitbucket-axi pr create");
-  const title = requiredFlag(parsed, "--title");
-  const source = requiredFlag(parsed, "--source");
+  noPositionals(parsed, command);
+  const title = requiredFlag(parsed, "--title", command);
+  const source = requiredFlag(parsed, "--source", command);
   const destination = stringFlag(parsed, "--destination");
+  const description = stringFlag(parsed, "--body");
+  const repo = requireRepo(ctx);
+
+  const toId = destination
+    ? branchRef(destination)
+    : text(object(await bitbucketRequest(repo.host, `${repoPath(repo)}/default-branch`, { help: CREATE_HELP })), "id");
+  const repository: JsonObject = { slug: repo.slug, project: { key: repo.project } };
   const body: JsonObject = {
     title,
-    source: { branch: { name: source } },
-    ...(destination ? { destination: { branch: { name: destination } } } : {}),
-    ...(stringFlag(parsed, "--body") ? { description: stringFlag(parsed, "--body")! } : {}),
-    ...(boolFlag(parsed, "--close-source") ? { close_source_branch: true } : {}),
+    ...(description ? { description } : {}),
+    fromRef: { id: branchRef(source), repository },
+    toRef: { id: toId, repository },
   };
-  const raw = object(await bitbucketRequest(`${repoPath(ctx)}/pullrequests`, { method: "POST", body }));
-  const id = number(raw, "id");
+  const core = prCore(object(
+    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, { method: "POST", body, help: CREATE_HELP }),
+    [`Run \`bitbucket-dc-axi pr list${repoHint(repo)}\` to see whether the pull request was created`],
+  ));
   return {
-    pull_request: compact({
-      id,
-      title: text(raw, "title") || title,
-      state: text(raw, "state").toLowerCase() || "open",
-      source: branch(raw, "source") || source,
-      destination: branch(raw, "destination") || destination || "default branch",
-      url: nestedText(raw, "links", "html", "href"),
-    }),
-    ...(id !== undefined ? { help: [`Run \`bitbucket-axi pr view ${id}${repoHint(ctx)}\``] } : {}),
+    id: core.id,
+    url: core.url,
+    title: core.title,
+    source: core.source,
+    destination: core.destination,
+    state: core.state,
+    help: [`Run \`bitbucket-dc-axi pr view ${core.id}${repoHint(repo)}\``],
   };
+}
+
+function branchRef(name: string): string {
+  return name.startsWith("refs/") ? name : `refs/heads/${name}`;
 }

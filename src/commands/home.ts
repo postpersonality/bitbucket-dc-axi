@@ -1,53 +1,51 @@
+import { parseArgs } from "../args.js";
 import { bitbucketRequest, type Json } from "../client.js";
-import { loadCredentials } from "../credentials.js";
-import type { RepoContext } from "../context.js";
-import { drillHint, jsonArray, number, object, pipelineListRow, prListRow, repoHint, repoPath, text } from "./utils.js";
+import { requireRepo, type RepoContext } from "../context.js";
+import { jsonArray, listRow, noPositionals, object, REPO_HELP, repoHint, repoPath } from "./utils.js";
 
-export async function homeCommand(_args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
-  const creds = loadCredentials();
+export const HOME_HELP = `usage: bitbucket-dc-axi [home] [flags]
+description: Open pull requests of the repository from origin (newest 5); hints outside a repository; a host without a token or a non-Bitbucket origin fails as in pr list
+flags[2]:
+  -R/--repo <host>/<PROJECT>/<repo>, --json
+examples[2]:
+  bitbucket-dc-axi
+  bitbucket-dc-axi home -R bitbucket.example.com/PROJ/repo --json
+`;
+
+const COMMANDS_HINT = "Run `bitbucket-dc-axi --help` for commands";
+
+export async function homeCommand(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
+  noPositionals(parseArgs(args, [], "bitbucket-dc-axi home"), "bitbucket-dc-axi home");
+
   if (!ctx) {
     return {
       repository: "not detected",
-      auth: creds ? "configured" : "not configured",
+      pull_requests: [],
       help: [
-        "Run `bitbucket-axi repo view -R <workspace/repo>`",
-        ...(creds ? [] : ["Run `bitbucket-axi config set` in a terminal"]),
-        "Run `bitbucket-axi --help` for commands",
+        "Run `bitbucket-dc-axi pr list -R <host>/<PROJECT>/<repo>`",
+        "Run `bitbucket-dc-axi config set --host <host>` in a terminal to add a server",
+        COMMANDS_HINT,
       ],
     };
   }
-  if (!creds) {
-    return {
-      repository: ctx.nwo,
-      auth: "not configured",
-      help: [
-        "Run `bitbucket-axi config set` in a terminal",
-        "Run `bitbucket-axi --help` for commands",
-      ],
-    };
-  }
+  const repo = requireRepo(ctx);
 
-  const [repo, prs, pipelines] = await Promise.all([
-    bitbucketRequest(repoPath(ctx)),
-    bitbucketRequest(`${repoPath(ctx)}/pullrequests`, { query: { state: "OPEN", pagelen: 3, sort: "-updated_on" } }),
-    bitbucketRequest(`${repoPath(ctx)}/pipelines`, { query: { pagelen: 3, sort: "-created_on" } }),
-  ]);
-  const repoObject = object(repo);
-  const prsObject = object(prs);
-  const pipelinesObject = object(pipelines);
-  const prRows = jsonArray(prsObject["values"]).map((item) => prListRow(object(item), []));
-  const pipelineRows = jsonArray(pipelinesObject["values"]).map((item) => pipelineListRow(object(item), []));
+  const page = object(
+    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, {
+      query: { state: "OPEN", limit: 5, order: "NEWEST" },
+      help: REPO_HELP,
+    }),
+  );
+  const rows = jsonArray(page["values"]).map((pr) => listRow(object(pr), []));
+  const first = rows[0];
   return {
-    repository: text(repoObject, "full_name") || ctx.nwo,
-    open_pull_requests: prRows,
-    recent_pipelines: pipelineRows,
+    repository: repo.nwo,
+    pull_requests: rows,
     help: [
-      prRows.length === 0
-        ? `Run \`bitbucket-axi pr create --title "<title>" --source <branch>${repoHint(ctx)}\``
-        : drillHint("pr list", "open pull requests", prRows.length, number(prsObject, "size"), ctx),
-      pipelineRows.length === 0
-        ? `Run \`bitbucket-axi pipeline run --branch <branch>${repoHint(ctx)}\``
-        : drillHint("pipeline list", "pipelines", pipelineRows.length, number(pipelinesObject, "size"), ctx),
+      first
+        ? `Run \`bitbucket-dc-axi pr view ${object(first)["id"]}${repoHint(repo)}\` for details`
+        : `Run \`bitbucket-dc-axi pr create --help\` to open one`,
+      COMMANDS_HINT,
     ],
   };
 }

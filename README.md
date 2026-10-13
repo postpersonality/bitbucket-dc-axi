@@ -1,103 +1,82 @@
-# bitbucket-axi
+# bitbucket-dc-axi
 
-Agent-facing Bitbucket Cloud CLI with compact [TOON](https://toonformat.dev/) output, strict validation, explicit empty states, and useful next-command hints.
+Agent-facing Bitbucket Data Center CLI with compact [TOON](https://toonformat.dev/) output: read pull requests, check whether they can be merged, and merge them only at a verified head commit.
 
 ## Install
 
 Requires Node.js 20 or newer.
 
 ```sh
-npm install -g bitbucket-axi
-# From a checkout:
-npm install -g .
+npm install -g bitbucket-dc-axi
+```
+
+Install the agent skill:
+
+```sh
+npx skills add postpersonality/bitbucket-dc-axi --skill bitbucket-dc-axi -g
 ```
 
 ## Authenticate
 
-`bitbucket-axi` stores your Bitbucket Cloud API token in your operating system credential manager (macOS Keychain, Windows Credential Manager, or libsecret on Linux). It never writes the token to a plaintext file and never accepts it as a command-line argument.
+`bitbucket-dc-axi` uses a Bitbucket Data Center HTTP access token, stored per host in the operating system credential manager. It never reads the token from environment variables or files and never accepts it as a command-line argument.
 
-Create a [Bitbucket Cloud API token](https://support.atlassian.com/bitbucket-cloud/docs/api-tokens/) with the `read:user:bitbucket` scope (used once by `config set` to verify the token belongs to your account) plus the repository, pull request, and pipeline scopes your commands need. Then run the interactive setup:
-
-```sh
-bitbucket-axi config set
-```
-
-Use the **Atlassian account email** that owns the token (not your Bitbucket username). You can supply it up front with `bitbucket-axi config set --email you@example.com`. The API token is prompted for without echo, validated against Bitbucket's current-user endpoint, and only then written to the keychain.
-
-For non-interactive automation, pipe the token from your secret manager. The email remains explicit, and `--token-stdin` prevents prompting:
+Create a personal HTTP access token in Bitbucket (**Manage account → HTTP access tokens**). Every command that calls the server needs `REPO_READ`; `pr merge` also needs `REPO_WRITE`. Then store it for the host:
 
 ```sh
-token-producing-command | bitbucket-axi config set --email you@example.com --token-stdin
+bitbucket-dc-axi config set --host bitbucket.example.com
 ```
 
-Verify setup at any time:
+The token is prompted for without echo, validated against `GET /rest/api/1.0/application-properties` (the server must answer with an `X-AUSERNAME` header), and only then saved. The command prints the user name and the server version. For automation, pipe the token in:
 
 ```sh
-bitbucket-axi config status   # shows the configured email and readiness, never the token
-bitbucket-axi config clear    # removes the stored credential (idempotent)
+token-producing-command | bitbucket-dc-axi config set --host bitbucket.example.com --token-stdin
+bitbucket-dc-axi config status --host bitbucket.example.com   # never prints the token
+bitbucket-dc-axi config clear --host bitbucket.example.com    # idempotent
 ```
 
-Every network-backed command requires a stored credential. If none is configured, the command makes no API call and returns an auth-required result pointing at `bitbucket-axi config set`.
+On Linux the token is kept in Secret Service (GNOME Keyring or KWallet), which must be running and unlocked. Without it the CLI answers `CREDENTIAL_STORE_ERROR` rather than falling back to the kernel keyring, which does not survive a reboot.
 
 ## Select a repository
 
-Pass `-R/--repo <workspace/repo>` after the command:
+The repository is taken from the first available source:
 
-```sh
-bitbucket-axi pr list -R acme/widgets
-```
-
-When omitted, `bitbucket-axi` scans git remotes for a `bitbucket.org` repository. Running with no arguments shows a compact dashboard for the selected repository.
+1. a pull request URL `https://<host>/projects/<KEY>/repos/<slug>/pull-requests/<N>` (for `pr view`, `pr merge-check`, `pr merge`);
+2. `-R/--repo <host>/<KEY>/<slug>` after `home`, `pr` or `builds` (not together with a URL);
+3. the `origin` remote: `ssh://git@<host>[:<port>]/<key>/<slug>.git`, `git@<host>:<key>/<slug>.git`, or `https://[<user>@]<host>[:<port>]/scm/<key>/<slug>.git`.
 
 ## Commands
 
 | Command | Purpose |
 | --- | --- |
-| `config set [--email <email>]` | Interactively validate and store API credentials in the OS keychain |
-| `config status` | Show the configured email and credential readiness |
-| `config clear` | Remove the stored credential |
-| `config git set --token-stdin` | Validate and store a separate Git HTTPS token for the credential helper |
-| `config git status` | Show whether the Git HTTPS token is configured |
-| `config git clear` | Remove the stored Git HTTPS token |
-| `credential-helper` | Git credential helper supplying stored HTTPS credentials (invoked by `git`) |
-| `repo view` | Show repository details |
-| `pr list` | List pull requests |
-| `pr view <id>` | Show one pull request; use `--full` for complete text |
-| `pr create` | Create a pull request |
-| `pipeline list` | List pipeline runs |
-| `pipeline view <uuid>` | Show one pipeline run |
-| `pipeline run` | Trigger a branch or custom pipeline |
-| `api [method] <path>` | Call any Bitbucket Cloud REST API v2.0 path |
+| `home` (no arguments) | Open pull requests of the current repository; hints outside a repository; a host without a token or an `origin` that is not a Bitbucket repository fails as in `pr list` |
+| `pr list [--state open\|merged\|declined\|all] [--limit 1-100] [--fields ...]` | List pull requests |
+| `pr view <id\|url> [--full]` | One pull request with a build summary on its head commit |
+| `pr create --title --source [--destination] [--body]` | Create a pull request; the default destination is the repository default branch |
+| `pr merge-check <id\|url>` | Read-only: every unmet merge condition in `blockers` |
+| `pr merge <id\|url> --sha <commit>` | Merge only if the head is still the given full commit |
+| `builds <commit>` | All build statuses of a full commit |
+| `config set\|status\|clear --host <host>` | Manage the stored access token |
 
-Run `bitbucket-axi --help` or `bitbucket-axi <command> --help` for the complete, concise flag reference.
-
-## Git over HTTPS (optional)
-
-The default Git transport is SSH. For HTTPS clones, `bitbucket-axi` can act as a Git credential helper using a separate token stored in the OS keychain (distinct from the API token, so a dedicated app password can be used).
+Add `--json` to any command for the same record in JSON. Run `bitbucket-dc-axi --help` or `bitbucket-dc-axi <command> --help` for the full flag reference.
 
 ```sh
-token-producing-command | bitbucket-axi config git set --token-stdin
-bitbucket-axi config git status   # shows configured, never the token
-git config --global credential.helper 'bitbucket-axi credential-helper'
+bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json
+bitbucket-dc-axi pr merge-check 7 -R bitbucket.example.com/PROJ/repo
+bitbucket-dc-axi pr merge 7 --sha 0123456789abcdef0123456789abcdef01234567 --json
 ```
 
-The Git token is validated against the same Bitbucket account as the API token (reusing the configured account email as the git username) before it is stored. The helper is read-only and only responds to `bitbucket.org` requests; `git credential store`/`erase` are ignored. Remove it with `bitbucket-axi config git clear`.
+## Errors and exit codes
 
-## Examples
+Errors are printed to stdout as the same kind of record as a result (`error`, `code`, `help`; server errors add `status`, `details` and, for a rejected merge, `vetoes`; `NOT_OPEN`, `HEAD_MOVED` and `MERGED_DIFFERENT_HEAD` add `state`, `head` and `sha`). Nothing is written to stderr.
 
-```sh
-bitbucket-axi repo view
-bitbucket-axi pr list --state open --fields source,destination
-bitbucket-axi pr view 42 --full
-bitbucket-axi pr create --title "Fix auth" --source fix/auth --destination main --body "Resolves token refresh"
-bitbucket-axi pipeline list --fields commit,url
-bitbucket-axi pipeline run --branch main
-bitbucket-axi pipeline run --branch main --custom "Deploy production"
-bitbucket-axi api /repositories/{workspace}/{repo}/refs/branches
-bitbucket-axi api POST /repositories/{workspace}/{repo}/pipelines --field 'target={"type":"pipeline_ref_target","ref_type":"branch","ref_name":"main"}'
-```
-
-List commands default to compact fields. Add supported columns with `--fields`. Long descriptions and raw API string values are truncated by default; pass `--full` when complete content is needed.
+| Exit | `code` |
+| --- | --- |
+| 0 | success, including repeats without changes (`already_merged`, `already clear`) and `merge-check` with blockers |
+| 1 | `NOT_FOUND`, `MERGE_REJECTED`, `HEAD_MOVED`, `MERGED_DIFFERENT_HEAD`, `NOT_OPEN`, `API_ERROR`, `INTERNAL_ERROR` |
+| 2 | `VALIDATION_ERROR` |
+| 3 | `NOT_CONFIGURED`, `CREDENTIAL_STORE_ERROR`, `REPO_NOT_RESOLVED` |
+| 4 | `AUTH_ERROR`, `PERMISSION_ERROR` |
+| 5 | `NETWORK_ERROR`, `SERVER_ERROR` |
 
 ## Development
 
@@ -107,25 +86,8 @@ pnpm run check
 pnpm run dev -- --help
 ```
 
-The installable agent skill is generated from the CLI description and committed at
-`skills/bitbucket-axi/SKILL.md`. Regenerate it after changing the CLI's agent-facing
-description, and use the check mode in validation:
+The skill at `skills/bitbucket-dc-axi/SKILL.md` is generated from the CLI description; regenerate it with `pnpm run build:skill` and verify it with `pnpm run build:skill -- --check`. Tests mock HTTP and the credential store; they make no live calls and never touch the real keychain.
 
-```sh
-pnpm run build:skill
-pnpm run build:skill -- --check
-```
+## Acknowledgements
 
-Install the skill with `npx skills add kitwon/bitbucket-axi --skill bitbucket-axi -g`.
-
-Tests mock HTTP responses and the OS credential store; they require no live Bitbucket credentials and never touch the real keychain.
-
-## Publishing
-
-From a clean checkout, verify the packed file list with `npm pack --dry-run`. Maintainers publish the current version with:
-
-```sh
-npm publish
-```
-
-The publish lifecycle rebuilds the executable and runs the full project checks. Bump the version separately before publishing a release.
+Forked from [bitbucket-axi](https://github.com/kitwon/bitbucket-axi) by Kit Chan, the Bitbucket Cloud CLI this one is rewritten from.

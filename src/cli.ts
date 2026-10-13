@@ -1,123 +1,145 @@
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { encode } from "@toon-format/toon";
 import { AxiError, runAxiCli } from "axi-sdk-js";
 import { stripRepoFlag } from "./args.js";
+import { BitbucketError, type Json } from "./client.js";
 import {
-  API_HELP,
+  BUILDS_HELP,
+  buildsCommand,
   CONFIG_HELP,
-  CREDENTIAL_HELPER_HELP,
-  PIPELINE_HELP,
-  PR_HELP,
-  REPO_HELP,
-  apiCommand,
   configCommand,
-  credentialHelperCommand,
+  HOME_HELP,
   homeCommand,
-  pipelineCommand,
+  PR_HELP,
   prCommand,
-  repoCommand,
 } from "./commands/index.js";
 import { resolveRepo, type RepoContext } from "./context.js";
+import { VERSION } from "./version.js";
 
-export const DESCRIPTION = "Inspect repositories, pull requests, and pipelines in Bitbucket Cloud with agent-efficient output.";
-export const TOP_HELP = `usage: bitbucket-axi [command] [args] [flags]
-commands[6]:
-  repo view, pr list|view|create, pipeline list|view|run, api, config set|status|clear|git, credential-helper
-flags[3]:
-  -R/--repo <workspace/repo> (after command), --help, -v/-V/--version
+export const DESCRIPTION =
+  "Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output.";
+export const TOP_HELP = `usage: bitbucket-dc-axi [command] [args] [flags]
+commands[4]:
+  home, pr list|view|create|merge-check|merge, builds, config set|status|clear
+flags[4]:
+  -R/--repo <host>/<PROJECT>/<repo> (after home, pr or builds), --json, --help, -v/-V/--version
 examples[4]:
-  bitbucket-axi
-  bitbucket-axi repo view -R workspace/repo
-  bitbucket-axi pr list --state open
-  bitbucket-axi pipeline run --branch main
+  bitbucket-dc-axi
+  bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json
+  bitbucket-dc-axi pr list -R bitbucket.example.com/PROJ/repo
+  bitbucket-dc-axi config set --host bitbucket.example.com
 `;
 
-const VERSION = readPackageVersion();
-const HELP: Record<string, string> = {
-  repo: REPO_HELP,
+export type Handler = (args: string[], ctx?: RepoContext) => Promise<Record<string, Json>>;
+
+export const HELP: Record<string, string> = {
+  home: HOME_HELP,
   pr: PR_HELP,
-  pipeline: PIPELINE_HELP,
-  api: API_HELP,
+  builds: BUILDS_HELP,
   config: CONFIG_HELP,
-  "credential-helper": CREDENTIAL_HELPER_HELP,
 };
 
-type Handler = (args: string[], ctx?: RepoContext) => Promise<Record<string, unknown>>;
+export const EXIT_CODES: Record<string, number> = {
+  NOT_FOUND: 1,
+  MERGE_REJECTED: 1,
+  HEAD_MOVED: 1,
+  MERGED_DIFFERENT_HEAD: 1,
+  NOT_OPEN: 1,
+  API_ERROR: 1,
+  INTERNAL_ERROR: 1,
+  VALIDATION_ERROR: 2,
+  NOT_CONFIGURED: 3,
+  CREDENTIAL_STORE_ERROR: 3,
+  REPO_NOT_RESOLVED: 3,
+  AUTH_ERROR: 4,
+  PERMISSION_ERROR: 4,
+  NETWORK_ERROR: 5,
+  SERVER_ERROR: 5,
+};
+
+const HELP_HINT = "Run `bitbucket-dc-axi --help` to see available commands";
 
 export async function main(options: {
   argv?: string[];
   stdout?: { write(chunk: string): unknown };
 } = {}): Promise<void> {
-  // Resolve repository context inside handlers so SDK error formatting also covers
-  // invalid selectors and git detection failures.
-  const wrap = (handler: Handler) => (args: string[]) =>
-    handler(stripRepoFlag(args), resolveRepo(args));
+  const stdout = options.stdout ?? process.stdout;
+  const given = options.argv ?? process.argv.slice(2);
+  const json = given.includes("--json");
+  let argv = given.filter((arg) => arg !== "--json");
+  const bare = json && argv.length === 0;
+  if (bare) argv = ["home"];
+
+  // axi-sdk-js renders a leading-flag error only in TOON.
+  const first = argv[0];
+  const passThrough = argv.length === 1 && (first === "--help" || first === "-v" || first === "-V" || first === "--version");
+  if (json && first?.startsWith("-") && !passThrough) {
+    const error = new AxiError("Flags must come after the command", "VALIDATION_ERROR", [
+      "Run `bitbucket-dc-axi <command> [args] [flags]`",
+      `Move \`${first}\` after the command instead of before it`,
+    ]);
+    const formatted = formatError(error, true);
+    stdout.write(formatted.output);
+    process.exitCode = formatted.exitCode;
+    return;
+  }
+
+  const render = (output: Record<string, Json>) => (json ? JSON.stringify(output) : output);
+  // Resolve the repository inside handlers so its errors use the same formatter.
+  const wrap = (handler: Handler, header: Record<string, Json> = {}) => async (args: string[]) =>
+    render({ ...header, ...(await handler(stripRepoFlag(args), resolveRepo(args))) });
 
   await runAxiCli({
-    ...(options.argv ? { argv: options.argv } : {}),
-    ...(options.stdout ? { stdout: options.stdout } : {}),
+    argv,
+    stdout,
     description: DESCRIPTION,
     version: VERSION,
-    packageName: "bitbucket-axi",
+    packageName: "bitbucket-dc-axi",
     topLevelHelp: TOP_HELP,
     commands: {
-      repo: wrap(repoCommand),
+      // Bare `--json` runs as `home`; the SDK adds its header only to the bare TOON call.
+      home: wrap(homeCommand, bare ? homeHeader() : {}),
       pr: wrap(prCommand),
-      pipeline: wrap(pipelineCommand),
-      api: wrap(apiCommand),
-      config: configCommand,
-      // Read-only Git credential helper: returns raw protocol text (not TOON),
-      // so it is registered without repo-context wrapping.
-      "credential-helper": (args) => credentialHelperCommand(args),
-      // Shadow the SDK's update command: this deliberately bounded release has no updater.
+      builds: wrap(buildsCommand),
+      // No repository context; the hidden-input prompt goes to the same stdout.
+      config: async (args) => render(await configCommand(args, { stdout })),
+      // Shadow the SDK's self-update: it writes to stderr and this tool has no updater.
       update: async () => {
-        throw new AxiError("Unknown command: update", "VALIDATION_ERROR", [
-          "Run `bitbucket-axi --help` to see available commands",
-        ]);
+        throw new AxiError("Unknown command: update", "VALIDATION_ERROR", [HELP_HINT]);
       },
     },
-    home: (args) => homeCommand(args, resolveRepo(args)),
+    home: wrap(homeCommand),
     getCommandHelp: (command) => HELP[command],
-    formatError: formatError,
+    renderUnknownCommand: (command) =>
+      formatError(new AxiError(`Unknown command: ${command}`, "VALIDATION_ERROR", [HELP_HINT]), json).output,
+    formatError: (error) => formatError(error, json),
   });
 }
 
-function formatError(error: unknown): { output: string; exitCode: number } {
-  if (error instanceof AxiError) {
-    return {
-      output: `${encode({
-        error: error.message,
-        code: error.code,
-        ...(error.suggestions.length ? { help: error.suggestions } : {}),
-      })}\n`,
-      exitCode: error.code === "VALIDATION_ERROR" ? 2 : 1,
-    };
-  }
-  return {
-    output: `${encode({
-      error: "Unexpected failure",
-      code: "INTERNAL_ERROR",
-      help: ["Retry with validated arguments; report the command if the failure persists"],
-    })}\n`,
-    exitCode: 1,
-  };
+// The header axi-sdk-js puts on the bare call: the binary path with the home directory as `~`.
+function homeHeader(): Record<string, Json> {
+  const bin = process.argv[1] ?? "";
+  const home = homedir();
+  return { bin: bin.startsWith(home) ? `~${bin.slice(home.length)}` : bin, description: DESCRIPTION };
 }
 
-function readPackageVersion(): string {
-  let directory = dirname(fileURLToPath(import.meta.url));
-  for (let i = 0; i < 4; i++) {
-    const path = join(directory, "package.json");
-    if (existsSync(path)) {
-      try {
-        const value = JSON.parse(readFileSync(path, "utf8")) as { version?: unknown };
-        if (typeof value.version === "string") return value.version;
-      } catch {
-        break;
-      }
-    }
-    directory = dirname(directory);
-  }
-  return "0.0.0";
+export function formatError(error: unknown, json: boolean): { output: string; exitCode: number } {
+  const record: Record<string, Json> =
+    error instanceof AxiError
+      ? {
+          error: error.message,
+          code: error.code,
+          ...(error.suggestions.length ? { help: error.suggestions } : {}),
+          ...(error instanceof BitbucketError ? error.extras : {}),
+        }
+      : {
+          error: "Unexpected failure",
+          code: "INTERNAL_ERROR",
+          help: ["Retry with validated arguments; report the command if the failure persists"],
+        };
+  const code = String(record["code"]);
+  return {
+    output: `${json ? JSON.stringify(record) : encode(record)}\n`,
+    exitCode: EXIT_CODES[code] ?? 1,
+  };
 }
