@@ -1,4 +1,4 @@
-// Generates skills/bitbucket-axi/SKILL.md from the current CLI description.
+// Generates skills/bitbucket-dc-axi/SKILL.md from the current CLI description.
 //
 //   pnpm run build:skill            # write the file
 //   pnpm run build:skill -- --check # fail if the committed file is stale
@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import { createSkillMarkdown } from "../src/skill.js";
 
-const target = new URL("../skills/bitbucket-axi/SKILL.md", import.meta.url);
+const target = new URL("../skills/bitbucket-dc-axi/SKILL.md", import.meta.url);
 const expected = createSkillMarkdown();
 const check = process.argv.includes("--check");
 
@@ -24,13 +24,13 @@ if (check) {
   }
   if (actual === null || normalizeLineEndings(actual) !== expected) {
     console.error(
-      "skills/bitbucket-axi/SKILL.md is out of date. Run `pnpm run build:skill` and commit the result.",
+      "skills/bitbucket-dc-axi/SKILL.md is out of date. Run `pnpm run build:skill` and commit the result.",
     );
     process.exit(1);
   }
-  console.log("skills/bitbucket-axi/SKILL.md is up to date.");
+  console.log("skills/bitbucket-dc-axi/SKILL.md is up to date.");
 } else {
-  await mkdir(new URL("../skills/bitbucket-axi/", import.meta.url), {
+  await mkdir(new URL("../skills/bitbucket-dc-axi/", import.meta.url), {
     recursive: true,
   });
   await writeFile(target, expected);
