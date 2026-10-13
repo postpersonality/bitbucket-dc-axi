@@ -55,7 +55,7 @@ export async function buildsCommand(args: string[], ctx?: RepoContext): Promise<
   const { host } = requireRepo(ctx);
 
   const [builds, counts] = await Promise.all([buildList(host, commit), buildStats(host, commit)]);
-  return { commit, builds, summary: buildSummary(counts) };
+  return { commit, builds, summary: buildSummary(counts), counts: { ...counts } };
 }
 
 async function buildList(host: string, commit: string): Promise<Json[]> {

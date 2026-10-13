@@ -41,7 +41,7 @@ describe("summary", () => {
 });
 
 describe("builds command", () => {
-  it("lists builds and the summary", async () => {
+  it("lists builds, the summary and the counts", async () => {
     routes(fetchMock, {
       [LIST]: response(200, page([build("a"), build("b", "INPROGRESS")])),
       [STATS]: response(200, stats({ successful: 1, inProgress: 1 })),
@@ -55,8 +55,16 @@ describe("builds command", () => {
         { key: "b", name: "Build b", state: "INPROGRESS", url: "https://ci.example.com/b" },
       ],
       summary: "1/2 passed, 1 running",
+      counts: { successful: 1, failed: 0, inProgress: 1, cancelled: 0, unknown: 0 },
     });
     expect(calls(fetchMock).map((call) => call.path).sort()).toEqual([LIST.slice(4), STATS.slice(4)].sort());
+  });
+
+  it("prints the counts in TOON", async () => {
+    routes(fetchMock, { [LIST]: response(200, page([])), [STATS]: response(200, stats({ successful: 2, failed: 1 })) });
+    const { out, code } = await run(["builds", HEAD, "-R", REPO]);
+    expect(code).toBe(0);
+    expect(out).toContain("counts:\n  successful: 2\n  failed: 1\n  inProgress: 0\n  cancelled: 0\n  unknown: 0");
   });
 
   it("lowercases the commit", async () => {
@@ -84,7 +92,11 @@ describe("builds command", () => {
   it("reports no builds", async () => {
     routes(fetchMock, { [LIST]: response(200, page([])), [STATS]: response(200, stats()) });
     const { out } = await run(["builds", HEAD, "-R", REPO, "--json"]);
-    expect(JSON.parse(out)).toMatchObject({ builds: [], summary: "no builds" });
+    expect(JSON.parse(out)).toMatchObject({
+      builds: [],
+      summary: "no builds",
+      counts: { successful: 0, failed: 0, inProgress: 0, cancelled: 0, unknown: 0 },
+    });
   });
 
   it.each([[["abc123", "-R", REPO]], [["-R", REPO]], [["abc123"]]])("rejects %j before the network", async (args) => {
