@@ -1,7 +1,7 @@
 import { parseArgs } from "../args.js";
 import { bitbucketRequest, type Json } from "../client.js";
 import { requireRepo, type RepoContext } from "../context.js";
-import { jsonArray, listRow, noPositionals, object, repoHint, repoPath } from "./utils.js";
+import { jsonArray, listRow, noPositionals, object, REPO_HELP, repoHint, repoPath } from "./utils.js";
 
 export const HOME_HELP = `usage: bitbucket-dc-axi [home] [flags]
 description: Open pull requests of the repository from origin (newest 5); hints outside a repository; a host without a token or a non-Bitbucket origin fails as in pr list
@@ -33,6 +33,7 @@ export async function homeCommand(args: string[], ctx?: RepoContext): Promise<Re
   const page = object(
     await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, {
       query: { state: "OPEN", limit: 5, order: "NEWEST" },
+      help: REPO_HELP,
     }),
   );
   const rows = jsonArray(page["values"]).map((pr) => listRow(object(pr), []));

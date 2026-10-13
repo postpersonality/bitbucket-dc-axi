@@ -106,6 +106,14 @@ describe("inside a repository", () => {
     });
   });
 
+  it("hints at the repository on 404", async () => {
+    setOrigin("git@bitbucket.example.com:PROJ/repo.git");
+    routes(fetchMock, {});
+    const { out, code } = await run(["home", "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ code: "NOT_FOUND", help: ["Check the repository selector or the origin remote"] });
+    expect(code).toBe(1);
+  });
+
   it("maps a server failure to exit 5", async () => {
     setOrigin("git@bitbucket.example.com:PROJ/repo.git");
     routes(fetchMock, { [LIST]: response(500, { errors: [{ message: "boom" }] }) });

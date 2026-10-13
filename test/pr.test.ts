@@ -43,6 +43,13 @@ describe("pr list", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("hints at the repository on 404", async () => {
+    routes(fetchMock, {});
+    const { out, code } = await run(["pr", "list", "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ code: "NOT_FOUND", help: ["Check the repository selector or the origin remote"] });
+    expect(code).toBe(1);
+  });
+
   it.each(["git@github.com:o/r.git", "https://github.com/o/r.git"])("asks to configure the host of %s", async (origin) => {
     setOrigin(origin);
     vi.mocked(loadToken).mockReturnValue(null);
@@ -184,6 +191,16 @@ describe("pr create", () => {
     expect(JSON.parse(out)).toMatchObject({
       code: "INTERNAL_ERROR",
       help: [`Run \`bitbucket-dc-axi pr list -R ${REPO}\` to see whether the pull request was created`],
+    });
+    expect(code).toBe(1);
+  });
+
+  it.each([[["--destination", "main"]], [[]]])("hints at the repository and branches on 404 (%j)", async (flags) => {
+    routes(fetchMock, {});
+    const { out, code } = await run(["pr", "create", "--title", "T", "--source", "feat", ...flags, "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({
+      code: "NOT_FOUND",
+      help: ["Check the repository selector or the origin remote, and that the source and destination branches exist"],
     });
     expect(code).toBe(1);
   });

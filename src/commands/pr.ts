@@ -1,7 +1,7 @@
 import { AxiError } from "axi-sdk-js";
 import { boolFlag, parseArgs, positiveInt, stringFlag } from "../args.js";
 import type { Handler } from "../cli.js";
-import { bitbucketRequest, type Json, type JsonObject } from "../client.js";
+import { bitbucketRequest, type ErrorHelp, type Json, type JsonObject } from "../client.js";
 import { requireRepo, resolvePrTarget, type RepoContext } from "../context.js";
 import { buildStats, buildSummary } from "./builds.js";
 import { merge, mergeCheck } from "./merge.js";
@@ -16,6 +16,7 @@ import {
   prCore,
   prPath,
   prRef,
+  REPO_HELP,
   repoHint,
   repoPath,
   requiredFlag,
@@ -47,6 +48,9 @@ examples[5]:
 
 const DESCRIPTION_LIMIT = 700;
 const STATES = ["open", "merged", "declined", "all"];
+const CREATE_HELP: ErrorHelp = {
+  notFound: ["Check the repository selector or the origin remote, and that the source and destination branches exist"],
+};
 
 export const SUBCOMMANDS: Record<string, Handler> = {
   list: prList,
@@ -77,6 +81,7 @@ async function prList(args: string[], ctx?: RepoContext): Promise<Record<string,
   const page = object(
     await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, {
       query: { state: state.toUpperCase(), limit, order: "NEWEST" },
+      help: REPO_HELP,
     }),
   );
   const rows = jsonArray(page["values"]).map((pr) => listRow(object(pr), fields));
@@ -126,7 +131,7 @@ async function prCreate(args: string[], ctx?: RepoContext): Promise<Record<strin
 
   const toId = destination
     ? branchRef(destination)
-    : text(object(await bitbucketRequest(repo.host, `${repoPath(repo)}/default-branch`)), "id");
+    : text(object(await bitbucketRequest(repo.host, `${repoPath(repo)}/default-branch`, { help: CREATE_HELP })), "id");
   const repository: JsonObject = { slug: repo.slug, project: { key: repo.project } };
   const body: JsonObject = {
     title,
@@ -135,7 +140,7 @@ async function prCreate(args: string[], ctx?: RepoContext): Promise<Record<strin
     toRef: { id: toId, repository },
   };
   const core = prCore(object(
-    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, { method: "POST", body }),
+    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, { method: "POST", body, help: CREATE_HELP }),
     [`Run \`bitbucket-dc-axi pr list${repoHint(repo)}\` to see whether the pull request was created`],
   ));
   return {

@@ -6,7 +6,7 @@ export interface JsonObject {
   [key: string]: Json;
 }
 
-// Hints a command puts in place of the default 401 and 404 hints, which fit the pr commands.
+// Hints a command puts in place of the default 401 and 404 hints, which fit the commands that take a pull request number.
 export interface ErrorHelp {
   auth?: string[];
   notFound?: string[];

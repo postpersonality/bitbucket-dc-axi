@@ -1,6 +1,6 @@
 import { AxiError } from "axi-sdk-js";
 import { stringFlag, type ParsedArgs } from "../args.js";
-import { isObject, type Json, type JsonObject } from "../client.js";
+import { isObject, type ErrorHelp, type Json, type JsonObject } from "../client.js";
 import type { PrTarget, RepoContext } from "../context.js";
 
 // Shared helpers for the command modules.
@@ -8,6 +8,8 @@ import type { PrTarget, RepoContext } from "../context.js";
 export const FULL_COMMIT = /^[0-9a-f]{40}$/i;
 
 export const LIST_FIELDS = new Set(["source", "destination", "created", "url", "draft"]);
+
+export const REPO_HELP: ErrorHelp = { notFound: ["Check the repository selector or the origin remote"] };
 
 export interface PrCore {
   id: number;
