@@ -35,7 +35,7 @@ flags{view}:
 flags{create}:
   --title <text>, --source <branch>, --destination <branch> (default: repository default branch), --body <text>, -R/--repo <host>/<PROJECT>/<repo>
 flags{merge-check}:
-  -R/--repo <host>/<PROJECT>/<repo> (not with a URL); read-only, exit 0 even with blockers
+  -R/--repo <host>/<PROJECT>/<repo> (not with a URL); read-only, exit 0 even with blockers. A clean result does not show that the stored token may merge; pr merge can still fail with AUTH_ERROR.
 flags{merge}:
   --sha <full 40-character commit> (required; merges only if it is still the head), -R/--repo <host>/<PROJECT>/<repo> (not with a URL)
 examples[5]:
