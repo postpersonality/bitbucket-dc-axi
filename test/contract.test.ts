@@ -89,7 +89,7 @@ describe("firstmate fields", () => {
 
   it("command -v finds the installed binary", () => {
     const pkg = JSON.parse(readFileSync("package.json", "utf8")) as { bin: Record<string, string>; scripts: Record<string, string> };
-    expect(pkg.bin["bitbucket-dc-axi"]).toBe("./dist/bin/bitbucket-dc-axi.js");
+    expect(pkg.bin["bitbucket-dc-axi"]).toBe("dist/bin/bitbucket-dc-axi.js");
     expect(pkg.scripts["build"]).toMatch(/chmod.*dist\/bin\/bitbucket-dc-axi\.js/);
     expect(readFileSync("bin/bitbucket-dc-axi.ts", "utf8").split("\n")[0]).toBe("#!/usr/bin/env node");
   });

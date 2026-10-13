@@ -16,7 +16,7 @@
     "registry": "https://registry.npmjs.org/"
   },
   "bin": {
-    "bitbucket-dc-axi": "./dist/bin/bitbucket-dc-axi.js"
+    "bitbucket-dc-axi": "dist/bin/bitbucket-dc-axi.js"
   },
   "files": [
     "dist",
