@@ -4,7 +4,7 @@ import type { Handler } from "../cli.js";
 import { bitbucketRequest, type Json, type JsonObject } from "../client.js";
 import { requireRepo, resolvePrTarget, type RepoContext } from "../context.js";
 import { buildStats, buildSummary } from "./builds.js";
-import { mergeCheck } from "./merge.js";
+import { merge, mergeCheck } from "./merge.js";
 import {
   exactPositionals,
   jsonArray,
@@ -25,8 +25,8 @@ import {
 } from "./utils.js";
 
 export const PR_HELP = `usage: bitbucket-dc-axi pr <subcommand> [flags]
-subcommands[4]:
-  list, view <id|url>, create, merge-check <id|url>
+subcommands[5]:
+  list, view <id|url>, create, merge-check <id|url>, merge <id|url> --sha <commit>
 flags{list}:
   --state <open|merged|declined|all> (default open), --limit <1-100> (default 30), --fields <source,destination,created,url,draft>, -R/--repo <host>/<PROJECT>/<repo>
 flags{view}:
@@ -35,11 +35,14 @@ flags{create}:
   --title <text>, --source <branch>, --destination <branch> (default: repository default branch), --body <text>, -R/--repo <host>/<PROJECT>/<repo>
 flags{merge-check}:
   -R/--repo <host>/<PROJECT>/<repo> (not with a URL); read-only, exit 0 even with blockers
-examples[4]:
+flags{merge}:
+  --sha <full 40-character commit> (required; merges only if it is still the head), -R/--repo <host>/<PROJECT>/<repo> (not with a URL)
+examples[5]:
   bitbucket-dc-axi pr list --state all --fields url
   bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json
   bitbucket-dc-axi pr create --title "Fix login" --source fix/login --body "- fixes the login form"
   bitbucket-dc-axi pr merge-check 7 --json
+  bitbucket-dc-axi pr merge 7 --sha 0123456789abcdef0123456789abcdef01234567 --json
 `;
 
 const DESCRIPTION_LIMIT = 700;
@@ -50,6 +53,7 @@ export const SUBCOMMANDS: Record<string, Handler> = {
   view: prView,
   create: prCreate,
   "merge-check": mergeCheck,
+  merge,
 };
 
 export async function prCommand(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
