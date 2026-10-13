@@ -107,6 +107,13 @@ describe("builds command", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("hints at the commit on 404", async () => {
+    routes(fetchMock, {});
+    const { out, code } = await run(["builds", HEAD, "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ code: "NOT_FOUND", help: ["Check the repository selector and the full 40-character commit hash"] });
+    expect(code).toBe(1);
+  });
+
   it("needs a repository", async () => {
     const { out, code } = await run(["builds", HEAD]);
     expect(out).toContain("REPO_NOT_RESOLVED");

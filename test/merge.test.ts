@@ -98,9 +98,20 @@ describe("pr merge", () => {
     expect(code).toBe(4);
   });
 
+  it("points to pr view when the merge reply is not an object", async () => {
+    server(pullRequest(), response(200, "<html>"));
+    const { result, code } = await merge(HEAD);
+    expect(result).toMatchObject({
+      code: "INTERNAL_ERROR",
+      help: [`Run \`bitbucket-dc-axi pr view 7 -R ${REPO}\` to see whether the pull request was merged`],
+    });
+    expect(code).toBe(1);
+  });
+
   it.each([[["7", "-R", REPO]], [["7", "-R", REPO, "--sha", "abc123"]], [["7", "--sha", "abc123"]]])("rejects %j before keychain and network", async (args) => {
-    const { out, code } = await run(["pr", "merge", ...args]);
-    expect(out).toContain("VALIDATION_ERROR");
+    const { out, code } = await run(["pr", "merge", ...args, "--json"]);
+    expect(JSON.parse(out).code).toBe("VALIDATION_ERROR");
+    expect(JSON.parse(out).help?.length).toBeGreaterThan(0);
     expect(code).toBe(2);
     expect(loadToken).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();

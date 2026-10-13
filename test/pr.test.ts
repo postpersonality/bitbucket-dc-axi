@@ -36,8 +36,10 @@ describe("pr list", () => {
     expect(JSON.parse(out).pull_requests[0]).toMatchObject({ url: PR_URL, draft: true, created: "2026-10-12T08:30:00.000Z" });
   });
 
-  it.each([[["--state", "superseded"]], [["--limit", "0"]], [["--fields", "bogus"]]])("rejects %j", async (flags) => {
-    expect((await run(["pr", "list", "-R", REPO, ...flags])).code).toBe(2);
+  it.each([[["--state", "superseded"]], [["--limit", "0"]], [["--fields", "bogus"]], [["--repo", REPO]]])("rejects %j with help", async (flags) => {
+    const { out, code } = await run(["pr", "list", "-R", REPO, ...flags, "--json"]);
+    expect(JSON.parse(out).help?.length).toBeGreaterThan(0);
+    expect(code).toBe(2);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -115,8 +117,25 @@ describe("pr view", () => {
   });
 
   it("maps 404 to NOT_FOUND", async () => {
-    const { out, code } = await run(["pr", "view", "99", "-R", REPO]);
-    expect(out).toContain("NOT_FOUND");
+    const { out, code } = await run(["pr", "view", "99", "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ code: "NOT_FOUND", help: ["Check the repository selector and the pull request number"] });
+    expect(code).toBe(1);
+  });
+
+  it.each(["abc", "0"])("rejects the pull request id %s", async (id) => {
+    const { out, code } = await run(["pr", "view", id, "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({ code: "VALIDATION_ERROR", help: ["Run `bitbucket-dc-axi pr --help`"] });
+    expect(code).toBe(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a reply that is not an object as INTERNAL_ERROR", async () => {
+    routes(fetchMock, { [PR]: response(200, "<html>") });
+    const { out, code } = await run(["pr", "view", "7", "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({
+      code: "INTERNAL_ERROR",
+      help: ["Check that the host is the Bitbucket Data Center server, not a proxy or login page, and retry"],
+    });
     expect(code).toBe(1);
   });
 });
@@ -152,9 +171,21 @@ describe("pr create", () => {
   });
 
   it.each([[["--source", "feat"]], [["--title", "T"]]])("requires title and source (%j)", async (flags) => {
-    expect((await run(["pr", "create", ...flags, "-R", REPO])).code).toBe(2);
+    const { out, code } = await run(["pr", "create", ...flags, "-R", REPO, "--json"]);
+    expect(JSON.parse(out).help).toEqual(["Run `bitbucket-dc-axi pr create --help`"]);
+    expect(code).toBe(2);
     expect(loadToken).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("points to pr list when the created reply is not an object", async () => {
+    routes(fetchMock, { [CREATE]: response(201, []) });
+    const { out, code } = await run(["pr", "create", "--title", "T", "--source", "feat", "--destination", "main", "-R", REPO, "--json"]);
+    expect(JSON.parse(out)).toMatchObject({
+      code: "INTERNAL_ERROR",
+      help: [`Run \`bitbucket-dc-axi pr list -R ${REPO}\` to see whether the pull request was created`],
+    });
+    expect(code).toBe(1);
   });
 
   it("reports a duplicate as API_ERROR", async () => {

@@ -71,9 +71,10 @@ export async function mergeCheck(args: string[], ctx?: RepoContext): Promise<Rec
 
 // The merge body cannot carry a commit, so the head is checked before and after.
 export async function merge(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
-  const parsed = parseArgs(args, [{ name: "--sha" }], "bitbucket-dc-axi pr merge");
-  exactPositionals(parsed, 1, "bitbucket-dc-axi pr merge <id|url> --sha <commit>");
-  const given = requiredFlag(parsed, "--sha");
+  const command = "bitbucket-dc-axi pr merge";
+  const parsed = parseArgs(args, [{ name: "--sha" }], command);
+  exactPositionals(parsed, 1, `${command} <id|url> --sha <commit>`);
+  const given = requiredFlag(parsed, "--sha", command);
   if (!FULL_COMMIT.test(given))
     throw new AxiError(`invalid --sha: ${given}`, "VALIDATION_ERROR", ["Pass the full 40-character commit hash"]);
   const sha = given.toLowerCase();
@@ -105,7 +106,10 @@ export async function merge(args: string[], ctx?: RepoContext): Promise<Record<s
   let merged: PrCore;
   try {
     merged = prCore(
-      object(await bitbucketRequest(host, `${path}/merge`, { method: "POST", query: { version: number(raw, "version") ?? 0 }, body: {} })),
+      object(
+        await bitbucketRequest(host, `${path}/merge`, { method: "POST", query: { version: number(raw, "version") ?? 0 }, body: {} }),
+        [`Run \`bitbucket-dc-axi pr view ${ref}\` to see whether the pull request was merged`],
+      ),
     );
   } catch (error) {
     if (error instanceof BitbucketError && error.extras["status"] === 409) {

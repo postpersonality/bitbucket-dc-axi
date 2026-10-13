@@ -86,15 +86,18 @@ export function truncate(value: string, length: number): string {
   return `${chars.slice(0, length).join("")}… (truncated, ${chars.length} chars total)`;
 }
 
-export function requiredFlag(parsed: ParsedArgs, name: string): string {
+export function requiredFlag(parsed: ParsedArgs, name: string, command: string): string {
   const value = stringFlag(parsed, name);
-  if (!value?.trim()) throw new AxiError(`${name} is required`, "VALIDATION_ERROR");
+  if (!value?.trim())
+    throw new AxiError(`${name} is required`, "VALIDATION_ERROR", [`Run \`${command} --help\``]);
   return value;
 }
 
 export function positiveId(value: string, label: string): number {
   if (!/^\d+$/.test(value) || Number(value) < 1 || !Number.isSafeInteger(Number(value)))
-    throw new AxiError(`${label} must be a positive integer`, "VALIDATION_ERROR");
+    throw new AxiError(`${label} must be a positive integer`, "VALIDATION_ERROR", [
+      "Run `bitbucket-dc-axi pr --help`",
+    ]);
   return Number(value);
 }
 
@@ -120,8 +123,11 @@ export function subcommandError(group: string, valid: string[], given?: string):
   );
 }
 
-export function object(value: Json): JsonObject {
-  if (!isObject(value)) throw new AxiError("Bitbucket returned an unexpected response", "API_ERROR");
+export function object(
+  value: Json,
+  help = ["Check that the host is the Bitbucket Data Center server, not a proxy or login page, and retry"],
+): JsonObject {
+  if (!isObject(value)) throw new AxiError("Bitbucket returned an unexpected response", "INTERNAL_ERROR", help);
   return value;
 }
 

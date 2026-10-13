@@ -42,9 +42,9 @@ export async function configCommand(args: string[], io: ConfigSetIO = {}): Promi
 
 export async function configSet(args: string[], io: ConfigSetIO = {}): Promise<Record<string, Json>> {
   const command = "bitbucket-dc-axi config set";
-  const parsed = parseArgs(args, [{ name: "--host" }, { name: "--token-stdin", boolean: true }], command);
+  const parsed = parseArgs(args, [{ name: "--host" }, { name: "--token-stdin", boolean: true }], command, { repo: false });
   noPositionals(parsed, command);
-  const host = hostFlag(parsed);
+  const host = hostFlag(parsed, command);
   const stdin = io.stdin ?? process.stdin;
   const stdout = io.stdout ?? process.stdout;
   const tokenFromStdin = boolFlag(parsed, "--token-stdin");
@@ -88,23 +88,23 @@ export async function configSet(args: string[], io: ConfigSetIO = {}): Promise<R
 
 export async function configStatus(args: string[]): Promise<Record<string, Json>> {
   const command = "bitbucket-dc-axi config status";
-  const parsed = parseArgs(args, [{ name: "--host" }], command);
+  const parsed = parseArgs(args, [{ name: "--host" }], command, { repo: false });
   noPositionals(parsed, command);
-  const host = hostFlag(parsed);
+  const host = hostFlag(parsed, command);
   return { config: { host, status: loadToken(host) === null ? "not configured" : "configured" } };
 }
 
 export async function configClear(args: string[]): Promise<Record<string, Json>> {
   const command = "bitbucket-dc-axi config clear";
-  const parsed = parseArgs(args, [{ name: "--host" }], command);
+  const parsed = parseArgs(args, [{ name: "--host" }], command, { repo: false });
   noPositionals(parsed, command);
-  const host = hostFlag(parsed);
+  const host = hostFlag(parsed, command);
   return { config: { host, status: clearToken(host) ? "cleared" : "already clear" } };
 }
 
 // Lowercased before any keychain access: the host is the entry's account name.
-function hostFlag(parsed: ParsedArgs): string {
-  const host = requiredFlag(parsed, "--host").trim().toLowerCase();
+function hostFlag(parsed: ParsedArgs, command: string): string {
+  const host = requiredFlag(parsed, "--host", command).trim().toLowerCase();
   if (!HOST_PATTERN.test(host))
     throw new AxiError(`invalid host: ${host}`, "VALIDATION_ERROR", [
       "Pass the host name with an optional port, without scheme or path, e.g. `--host bitbucket.example.com`",

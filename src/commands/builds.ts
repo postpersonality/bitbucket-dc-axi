@@ -1,6 +1,6 @@
 import { AxiError } from "axi-sdk-js";
 import { parseArgs } from "../args.js";
-import { bitbucketRequest, type Json } from "../client.js";
+import { bitbucketRequest, type ErrorHelp, type Json } from "../client.js";
 import { requireRepo, type RepoContext } from "../context.js";
 import { exactPositionals, FULL_COMMIT, jsonArray, number, object, text } from "./utils.js";
 
@@ -13,6 +13,8 @@ examples[2]:
   bitbucket-dc-axi builds 0123456789abcdef0123456789abcdef01234567 -R bitbucket.example.com/PROJ/repo --json
 `;
 
+const COMMIT_HELP: ErrorHelp = { notFound: ["Check the repository selector and the full 40-character commit hash"] };
+
 export interface BuildCounts {
   successful: number;
   failed: number;
@@ -21,8 +23,8 @@ export interface BuildCounts {
   unknown: number;
 }
 
-export async function buildStats(host: string, commit: string): Promise<BuildCounts> {
-  const stats = object(await bitbucketRequest(host, `build-status/latest/commits/stats/${commit}`));
+export async function buildStats(host: string, commit: string, help?: ErrorHelp): Promise<BuildCounts> {
+  const stats = object(await bitbucketRequest(host, `build-status/latest/commits/stats/${commit}`, { help }));
   return {
     successful: number(stats, "successful") ?? 0,
     failed: number(stats, "failed") ?? 0,
@@ -54,7 +56,7 @@ export async function buildsCommand(args: string[], ctx?: RepoContext): Promise<
     ]);
   const { host } = requireRepo(ctx);
 
-  const [builds, counts] = await Promise.all([buildList(host, commit), buildStats(host, commit)]);
+  const [builds, counts] = await Promise.all([buildList(host, commit), buildStats(host, commit, COMMIT_HELP)]);
   return { commit, builds, summary: buildSummary(counts), counts: { ...counts } };
 }
 
@@ -63,7 +65,7 @@ async function buildList(host: string, commit: string): Promise<Json[]> {
   let start: number | undefined = 0;
   while (start !== undefined) {
     const page = object(
-      await bitbucketRequest(host, `build-status/latest/commits/${commit}`, { query: { limit: 100, start } }),
+      await bitbucketRequest(host, `build-status/latest/commits/${commit}`, { query: { limit: 100, start }, help: COMMIT_HELP }),
     );
     for (const value of jsonArray(page["values"])) {
       const build = object(value);

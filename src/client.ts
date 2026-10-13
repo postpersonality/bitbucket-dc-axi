@@ -6,10 +6,17 @@ export interface JsonObject {
   [key: string]: Json;
 }
 
+// Hints a command puts in place of the default 401 and 404 hints, which fit the pr commands.
+export interface ErrorHelp {
+  auth?: string[];
+  notFound?: string[];
+}
+
 interface RequestOptions {
   method?: "GET" | "POST";
   query?: Record<string, string | number | boolean | undefined>;
   body?: Json;
+  help?: ErrorHelp;
 }
 
 interface ServerReply {
@@ -62,7 +69,7 @@ export async function bitbucketRequest(
     },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
   }, host);
-  if (!reply.ok) throw apiError(reply, token, host);
+  if (!reply.ok) throw apiError(reply, token, host, options.help);
   return reply.payload;
 }
 
@@ -75,13 +82,16 @@ export async function validateToken(
     method: "GET",
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
   }, host);
-  if (!reply.ok) throw apiError(reply, token, host);
+  const retry = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
+  if (!reply.ok) {
+    throw apiError(reply, token, host, {
+      auth: retry,
+      notFound: [`Check that \`--host ${host}\` is the address of the Bitbucket Data Center server`],
+    });
+  }
   const user = reply.headers.get("X-AUSERNAME")?.trim();
   if (!user) {
-    throw new BitbucketError("Bitbucket did not accept the access token", "AUTH_ERROR", [
-      "Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge)",
-      `Retry \`bitbucket-dc-axi config set --host ${host}\``,
-    ], { status: reply.status });
+    throw new BitbucketError("Bitbucket did not accept the access token", "AUTH_ERROR", retry, { status: reply.status });
   }
   const version = isObject(reply.payload) && typeof reply.payload["version"] === "string"
     ? reply.payload["version"]
@@ -128,7 +138,7 @@ function parseResponse(text: string): Json {
   }
 }
 
-function apiError(reply: ServerReply, token: string, host: string): BitbucketError {
+function apiError(reply: ServerReply, token: string, host: string, help: ErrorHelp = {}): BitbucketError {
   const { status, payload } = reply;
   const errors = isObject(payload) && Array.isArray(payload["errors"])
     ? payload["errors"].filter(isObject)
@@ -150,7 +160,7 @@ function apiError(reply: ServerReply, token: string, host: string): BitbucketErr
   };
 
   if (status === 401) {
-    return new BitbucketError("Bitbucket rejected the request as unauthorized (401)", "AUTH_ERROR", [
+    return new BitbucketError("Bitbucket rejected the request as unauthorized (401)", "AUTH_ERROR", help.auth ?? [
       "Reading and merge checks need REPO_READ; merging needs REPO_WRITE",
       `Run \`bitbucket-dc-axi config set --host ${host}\` to replace the token`,
     ], extras);
@@ -161,7 +171,7 @@ function apiError(reply: ServerReply, token: string, host: string): BitbucketErr
     ], extras);
   }
   if (status === 404) {
-    return new BitbucketError("Bitbucket resource not found (404)", "NOT_FOUND", [
+    return new BitbucketError("Bitbucket resource not found (404)", "NOT_FOUND", help.notFound ?? [
       "Check the repository selector and the pull request number",
     ], extras);
   }

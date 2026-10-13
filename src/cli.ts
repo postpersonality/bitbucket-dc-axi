@@ -22,7 +22,7 @@ export const TOP_HELP = `usage: bitbucket-dc-axi [command] [args] [flags]
 commands[4]:
   home, pr list|view|create|merge-check|merge, builds, config set|status|clear
 flags[4]:
-  -R/--repo <host>/<PROJECT>/<repo> (after command), --json, --help, -v/-V/--version
+  -R/--repo <host>/<PROJECT>/<repo> (after home, pr or builds), --json, --help, -v/-V/--version
 examples[4]:
   bitbucket-dc-axi
   bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json

@@ -118,8 +118,8 @@ async function prCreate(args: string[], ctx?: RepoContext): Promise<Record<strin
     command,
   );
   noPositionals(parsed, command);
-  const title = requiredFlag(parsed, "--title");
-  const source = requiredFlag(parsed, "--source");
+  const title = requiredFlag(parsed, "--title", command);
+  const source = requiredFlag(parsed, "--source", command);
   const destination = stringFlag(parsed, "--destination");
   const description = stringFlag(parsed, "--body");
   const repo = requireRepo(ctx);
@@ -134,7 +134,10 @@ async function prCreate(args: string[], ctx?: RepoContext): Promise<Record<strin
     fromRef: { id: branchRef(source), repository },
     toRef: { id: toId, repository },
   };
-  const core = prCore(object(await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, { method: "POST", body })));
+  const core = prCore(object(
+    await bitbucketRequest(repo.host, `${repoPath(repo)}/pull-requests`, { method: "POST", body }),
+    [`Run \`bitbucket-dc-axi pr list${repoHint(repo)}\` to see whether the pull request was created`],
+  ));
   return {
     id: core.id,
     url: core.url,

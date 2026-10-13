@@ -2,7 +2,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { formatError } from "../src/cli.js";
 import { configCommand, type ConfigSetIO } from "../src/commands/config.js";
-import { HOST, response, run, TOKEN } from "./helpers.js";
+import { HOST, REPO, response, run, TOKEN } from "./helpers.js";
 
 vi.mock("node:child_process");
 
@@ -60,6 +60,8 @@ async function exec(args: string[], io: ConfigSetIO = {}): Promise<{ out: string
   }
 }
 
+const RETRY = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
+
 function accepted(user?: string): void {
   fetchMock.mockResolvedValue(response(200, { version: "10.0.1", buildNumber: "10000001" }, user ? { "X-AUSERNAME": user } : {}));
 }
@@ -78,7 +80,7 @@ describe("config set", () => {
   it("rejects a token without X-AUSERNAME", async () => {
     accepted();
     const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
-    expect(JSON.parse(out).code).toBe("AUTH_ERROR");
+    expect(JSON.parse(out)).toMatchObject({ code: "AUTH_ERROR", help: RETRY });
     expect(code).toBe(4);
     expect(keyring.setPassword).not.toHaveBeenCalled();
   });
@@ -86,8 +88,19 @@ describe("config set", () => {
   it("rejects a token the server refuses", async () => {
     fetchMock.mockResolvedValue(response(401, { errors: [{ message: "Authentication failed" }] }));
     const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
-    expect(JSON.parse(out).code).toBe("AUTH_ERROR");
+    expect(JSON.parse(out)).toMatchObject({ code: "AUTH_ERROR", help: RETRY });
     expect(code).toBe(4);
+    expect(keyring.setPassword).not.toHaveBeenCalled();
+  });
+
+  it("hints at --host when the server answers 404", async () => {
+    fetchMock.mockResolvedValue(response(404));
+    const { out, code } = await exec(["set", "--host", HOST, "--token-stdin"], { stdin: stdinInput(TOKEN) });
+    expect(JSON.parse(out)).toMatchObject({
+      code: "NOT_FOUND",
+      help: [`Check that \`--host ${HOST}\` is the address of the Bitbucket Data Center server`],
+    });
+    expect(code).toBe(1);
     expect(keyring.setPassword).not.toHaveBeenCalled();
   });
 
@@ -125,7 +138,8 @@ describe("config set", () => {
   it.each([[["set"]], [["set", "--host", "https://h"]], [["set", "--host", "h/x"]], [["set", "--host", HOST, "--bogus"]]])(
     "rejects %j before the keychain and network",
     async (args) => {
-      const { code } = await run(["config", ...args]);
+      const { out, code } = await run(["config", ...args, "--json"]);
+      expect(JSON.parse(out).help?.length).toBeGreaterThan(0);
       expect(code).toBe(2);
       expect(keyring.Entry).not.toHaveBeenCalled();
       expect(fetchMock).not.toHaveBeenCalled();
@@ -173,6 +187,19 @@ describe("config status and clear", () => {
     const again = await run(["config", "clear", "--host", HOST]);
     expect(again.out).toContain("already clear");
     expect(again.code).toBe(0);
+  });
+
+  it.each(
+    ["set", "status", "clear"].flatMap((subcommand) =>
+      [["-R", REPO], ["--repo", REPO], [`-R=${REPO}`], [`--repo=${REPO}`]].map((flag) => [subcommand, flag] as const),
+    ),
+  )("rejects config %s with %j like any unknown flag", async (subcommand, flag) => {
+    const unknown = JSON.parse((await run(["config", subcommand, "--host", HOST, "--bogus", "--json"])).out);
+    const { out, code } = await run(["config", subcommand, "--host", HOST, ...flag, "--json"]);
+    expect(JSON.parse(out)).toEqual({ ...unknown, error: `unknown flag ${flag[0]!.split("=")[0]} for bitbucket-dc-axi config ${subcommand}` });
+    expect(code).toBe(2);
+    expect(keyring.Entry).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each(["git", "bogus"])("rejects config %s", async (subcommand) => {

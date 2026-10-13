@@ -17,8 +17,9 @@ export function parseArgs(
   args: string[],
   definitions: FlagDefinition[],
   command: string,
+  { repo = true }: { repo?: boolean } = {},
 ): ParsedArgs {
-  const defs = [...definitions, REPO_FLAG];
+  const defs = repo ? [...definitions, REPO_FLAG] : definitions;
   const byFlag = new Map<string, FlagDefinition>();
   for (const def of defs) {
     byFlag.set(def.name, def);
@@ -101,7 +102,9 @@ export function findRepoFlag(args: string[]): string | undefined {
         "Use `-R <host>/<PROJECT>/<repo>` or `--repo <host>/<PROJECT>/<repo>`",
       ]);
     if (value !== undefined)
-      throw new AxiError("--repo may only be given once", "VALIDATION_ERROR");
+      throw new AxiError("--repo may only be given once", "VALIDATION_ERROR", [
+        "Pass `-R <host>/<PROJECT>/<repo>` once",
+      ]);
     value = candidate;
   }
   return value;
@@ -119,7 +122,9 @@ export function boolFlag(parsed: ParsedArgs, name: string): boolean {
 export function positiveInt(value: string | undefined, flag: string, fallback: number): number {
   if (value === undefined) return fallback;
   if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100)
-    throw new AxiError(`${flag} must be an integer from 1 to 100`, "VALIDATION_ERROR");
+    throw new AxiError(`${flag} must be an integer from 1 to 100`, "VALIDATION_ERROR", [
+      `Usage: ${flag} <1-100> (default ${fallback})`,
+    ]);
   return Number(value);
 }
 
