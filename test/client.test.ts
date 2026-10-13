@@ -43,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -140,6 +141,30 @@ describe("bitbucketRequest", () => {
     expect((await failure(bitbucketRequest(HOST, "api/1.0/x"))).code).toBe("NETWORK_ERROR");
   });
 
+  it("keeps the fetch cause in NETWORK_ERROR, redacted", async () => {
+    vi.stubEnv("HTTPS_PROXY", ""); vi.stubEnv("https_proxy", ""); vi.stubEnv("HTTP_PROXY", ""); vi.stubEnv("http_proxy", "");
+    const cause = Object.assign(new Error(`connect ENETUNREACH ${TOKEN}`), { code: "ENETUNREACH" });
+    fetchMock.mockRejectedValue(new TypeError("fetch failed", { cause }));
+    const error = await failure(bitbucketRequest(HOST, "api/1.0/x"));
+    expect(error.message).toContain("ENETUNREACH: connect ENETUNREACH [redacted]");
+    expect(error.message).not.toContain(TOKEN);
+    expect(error.suggestions.join("\n")).not.toContain("NODE_USE_ENV_PROXY");
+  });
+
+  it.each([
+    [{ HTTPS_PROXY: "http://localhost:3128" }, true],
+    [{ http_proxy: "http://localhost:3128" }, true],
+    [{ HTTPS_PROXY: "http://localhost:3128", NODE_USE_ENV_PROXY: "1" }, false],
+    [{}, false],
+  ])("hints NODE_USE_ENV_PROXY for %j: %s", async (env, hinted) => {
+    for (const name of ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "NODE_USE_ENV_PROXY"]) {
+      vi.stubEnv(name, (env as Record<string, string>)[name] ?? "");
+    }
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+    const help = (await failure(bitbucketRequest(HOST, "api/1.0/x"))).suggestions.join("\n");
+    expect(help.includes("NODE_USE_ENV_PROXY=1")).toBe(hinted);
+  });
+
   it("maps a timeout to NETWORK_ERROR naming 30 s", async () => {
     fetchMock.mockRejectedValue(new DOMException("The operation timed out.", "TimeoutError"));
     const error = await failure(bitbucketRequest(HOST, "api/1.0/x"));
@@ -172,6 +197,11 @@ describe("validateToken", () => {
     expect(String(fetchMock.mock.calls[0]![0])).toBe(`https://${HOST}/rest/api/1.0/application-properties`);
     expect(headers()["Authorization"]).toBe("Bearer candidate");
     expect(vi.mocked(loadToken)).not.toHaveBeenCalled();
+  });
+
+  it.each([["jdoe%40example.com", "jdoe@example.com"], ["jdoe%E0%A4%A", "jdoe%E0%A4%A"]])("decodes X-AUSERNAME %s", async (header, user) => {
+    fetchMock.mockResolvedValue(reply(200, { version: "10.0.1" }, { "X-AUSERNAME": header }));
+    expect((await validateToken(HOST, "candidate")).user).toBe(user);
   });
 
   it.each([[{}], [{ "X-AUSERNAME": "" }]])("rejects a reply without a user: %j", async (extra) => {

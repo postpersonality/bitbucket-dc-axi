@@ -38,5 +38,5 @@ Get every command, flag, and workflow from the live CLI - it is the single sourc
 - \`npx -y bitbucket-dc-axi --help\` - global usage
 - \`npx -y bitbucket-dc-axi <command> --help\` - per-command usage
 
-Access tokens are stored per host in the OS credential manager. If the CLI reports that a host is not configured, run \`npx -y bitbucket-dc-axi config set --host <host>\`; for automation, pipe the token to \`npx -y bitbucket-dc-axi config set --host <host> --token-stdin\`.\n`;
+Access tokens are stored per host in the OS credential manager. If the CLI reports that a host is not configured, run \`npx -y bitbucket-dc-axi config set --host <host>\`; for automation, pipe the token to \`npx -y bitbucket-dc-axi config set --host <host> --token-stdin\`.\n\nBehind an HTTP(S) proxy, run the CLI with \`NODE_USE_ENV_PROXY=1\` (Node 24.0+ or 22.21+) so Node's \`fetch\` honours \`HTTPS_PROXY\`/\`HTTP_PROXY\`; without it every request fails with \`NETWORK_ERROR\`.\n`;
 }

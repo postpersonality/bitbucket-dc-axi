@@ -36,6 +36,8 @@ bitbucket-dc-axi config clear --host bitbucket.example.com    # idempotent
 
 On Linux the token is kept in Secret Service (GNOME Keyring or KWallet), which must be running and unlocked. Without it the CLI answers `CREDENTIAL_STORE_ERROR` rather than falling back to the kernel keyring, which does not survive a reboot.
 
+Behind an HTTP(S) proxy, run the CLI with `NODE_USE_ENV_PROXY=1` (Node 24.0+ or 22.21+) so Node's `fetch` honours `HTTPS_PROXY`/`HTTP_PROXY`; without it every request fails with `NETWORK_ERROR`.
+
 ## Select a repository
 
 The repository is taken from the first available source:
