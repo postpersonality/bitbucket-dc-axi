@@ -132,7 +132,8 @@ async function send(url: URL, init: RequestInit, host: string, token: string): P
         "Check network access to the server and retry",
       ]);
     }
-    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error;
+    let cause: unknown = error;
+    while (cause instanceof Error && cause.cause instanceof Error) cause = cause.cause;
     const code = (cause as { code?: unknown } | null)?.code;
     const reason = redact(`${typeof code === "string" ? `${code}: ` : ""}${cause instanceof Error ? cause.message : String(cause)}`, token);
     const proxied = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"].some((name) => process.env[name]);

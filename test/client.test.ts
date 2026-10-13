@@ -151,6 +151,15 @@ describe("bitbucketRequest", () => {
     expect(error.suggestions.join("\n")).not.toContain("NODE_USE_ENV_PROXY");
   });
 
+  it("reports the innermost fetch cause in NETWORK_ERROR, redacted", async () => {
+    const proxy = Object.assign(new Error(`Proxy response (502) !== 200 when HTTP Tunneling ${TOKEN}`), { code: "UND_ERR_ABORTED" });
+    const aborted = Object.assign(new DOMException("Request was cancelled.", "AbortError"), { cause: proxy });
+    fetchMock.mockRejectedValue(new TypeError("fetch failed", { cause: aborted }));
+    const error = await failure(bitbucketRequest(HOST, "api/1.0/x"));
+    expect(error.message).toContain("UND_ERR_ABORTED: Proxy response (502) !== 200 when HTTP Tunneling [redacted]");
+    expect(error.message).not.toContain(TOKEN);
+  });
+
   it.each([
     [{ HTTPS_PROXY: "http://localhost:3128" }, true],
     [{ http_proxy: "http://localhost:3128" }, true],
