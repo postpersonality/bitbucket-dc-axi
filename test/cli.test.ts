@@ -36,13 +36,13 @@ describe("entry point", () => {
     } finally {
       process.argv = argv;
     }
-    expect(stdout).toHaveBeenCalledWith("0.1.1\n");
+    expect(stdout).toHaveBeenCalledWith("0.1.0\n");
     expect(cliFactory).not.toHaveBeenCalled();
     vi.doUnmock("../src/cli.js");
   });
 
   it("prints the version", async () => {
-    expect(await run(["-v"])).toEqual({ out: "0.1.1\n", code: 0 });
+    expect(await run(["-v"])).toEqual({ out: "0.1.0\n", code: 0 });
   });
 });
 
