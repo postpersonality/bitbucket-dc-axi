@@ -3,12 +3,5 @@
 
 export { HOME_HELP, homeCommand } from "./home.js";
 export { PR_HELP, prCommand } from "./pr.js";
-export { BUILDS_HELP, buildsCommand, buildStats, buildSummary, type BuildCounts } from "./builds.js";
-export {
-  CONFIG_HELP,
-  configClear,
-  configCommand,
-  configSet,
-  configStatus,
-  readTokenFromStdin,
-} from "./config.js";
+export { BUILDS_HELP, buildsCommand } from "./builds.js";
+export { CONFIG_HELP, configCommand } from "./config.js";
