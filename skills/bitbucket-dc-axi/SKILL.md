@@ -11,7 +11,7 @@ metadata:
 
 # bitbucket-dc-axi
 
-Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output.
+Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output. A clean merge-check does not show that the stored token may merge; pr merge can still fail with AUTH_ERROR.
 
 ## When to use
 

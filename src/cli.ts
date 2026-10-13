@@ -17,7 +17,7 @@ import { resolveRepo, type RepoContext } from "./context.js";
 import { VERSION } from "./version.js";
 
 export const DESCRIPTION =
-  "Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output.";
+  "Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output. A clean merge-check does not show that the stored token may merge; pr merge can still fail with AUTH_ERROR.";
 export const TOP_HELP = `usage: bitbucket-dc-axi [command] [args] [flags]
 commands[4]:
   home, pr list|view|create|merge-check|merge, builds, config set|status|clear
