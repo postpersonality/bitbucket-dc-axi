@@ -4,6 +4,7 @@ import type { Handler } from "../cli.js";
 import { bitbucketRequest, type Json, type JsonObject } from "../client.js";
 import { requireRepo, resolvePrTarget, type RepoContext } from "../context.js";
 import { buildStats, buildSummary } from "./builds.js";
+import { mergeCheck } from "./merge.js";
 import {
   exactPositionals,
   jsonArray,
@@ -24,18 +25,21 @@ import {
 } from "./utils.js";
 
 export const PR_HELP = `usage: bitbucket-dc-axi pr <subcommand> [flags]
-subcommands[3]:
-  list, view <id|url>, create
+subcommands[4]:
+  list, view <id|url>, create, merge-check <id|url>
 flags{list}:
   --state <open|merged|declined|all> (default open), --limit <1-100> (default 30), --fields <source,destination,created,url,draft>, -R/--repo <host>/<PROJECT>/<repo>
 flags{view}:
   --full, -R/--repo <host>/<PROJECT>/<repo> (not with a URL)
 flags{create}:
   --title <text>, --source <branch>, --destination <branch> (default: repository default branch), --body <text>, -R/--repo <host>/<PROJECT>/<repo>
-examples[3]:
+flags{merge-check}:
+  -R/--repo <host>/<PROJECT>/<repo> (not with a URL); read-only, exit 0 even with blockers
+examples[4]:
   bitbucket-dc-axi pr list --state all --fields url
   bitbucket-dc-axi pr view https://bitbucket.example.com/projects/PROJ/repos/repo/pull-requests/7 --json
   bitbucket-dc-axi pr create --title "Fix login" --source fix/login --body "- fixes the login form"
+  bitbucket-dc-axi pr merge-check 7 --json
 `;
 
 const DESCRIPTION_LIMIT = 700;
@@ -45,6 +49,7 @@ export const SUBCOMMANDS: Record<string, Handler> = {
   list: prList,
   view: prView,
   create: prCreate,
+  "merge-check": mergeCheck,
 };
 
 export async function prCommand(args: string[], ctx?: RepoContext): Promise<Record<string, Json>> {
