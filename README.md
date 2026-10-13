@@ -41,7 +41,7 @@ On Linux the token is kept in Secret Service (GNOME Keyring or KWallet), which m
 The repository is taken from the first available source:
 
 1. a pull request URL `https://<host>/projects/<KEY>/repos/<slug>/pull-requests/<N>` (for `pr view`, `pr merge-check`, `pr merge`);
-2. `-R/--repo <host>/<KEY>/<slug>` after the command (not together with a URL);
+2. `-R/--repo <host>/<KEY>/<slug>` after `home`, `pr` or `builds` (not together with a URL);
 3. the `origin` remote: `ssh://git@<host>[:<port>]/<key>/<slug>.git`, `git@<host>:<key>/<slug>.git`, or `https://[<user>@]<host>[:<port>]/scm/<key>/<slug>.git`.
 
 ## Commands
