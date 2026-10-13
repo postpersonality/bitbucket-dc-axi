@@ -82,7 +82,7 @@ export async function validateToken(
     method: "GET",
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
   }, host, token);
-  const retry = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
+  const retry = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to create pull requests, REPO_ADMIN to merge) and enter it again"];
   if (!reply.ok) {
     throw apiError(reply, token, host, {
       auth: retry,
@@ -178,13 +178,13 @@ function apiError(reply: ServerReply, token: string, host: string, help: ErrorHe
 
   if (status === 401) {
     return new BitbucketError("Bitbucket rejected the request as unauthorized (401)", "AUTH_ERROR", help.auth ?? [
-      "Reading and merge checks need REPO_READ; merging needs REPO_WRITE",
+      "Reading and merge checks need REPO_READ; creating pull requests needs REPO_WRITE; merging needs REPO_ADMIN (a REPO_WRITE token cannot merge)",
       `Run \`bitbucket-dc-axi config set --host ${host}\` to replace the token`,
     ], extras);
   }
   if (status === 403) {
     return new BitbucketError("Bitbucket denied this operation (403)", "PERMISSION_ERROR", [
-      "Reading and merge checks need REPO_READ; merging needs REPO_WRITE",
+      "Reading and merge checks need REPO_READ; creating pull requests needs REPO_WRITE; merging needs REPO_ADMIN (a REPO_WRITE token cannot merge)",
     ], extras);
   }
   if (status === 404) {

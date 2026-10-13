@@ -20,7 +20,7 @@ npx skills add postpersonality/bitbucket-dc-axi --skill bitbucket-dc-axi -g
 
 `bitbucket-dc-axi` uses a Bitbucket Data Center HTTP access token, stored per host in the operating system credential manager. It never reads the token from environment variables or files and never accepts it as a command-line argument.
 
-Create a personal HTTP access token in Bitbucket (**Manage account → HTTP access tokens**). Every command that calls the server needs `REPO_READ`; `pr merge` also needs `REPO_WRITE`. Then store it for the host:
+Create a personal HTTP access token in Bitbucket (**Manage account → HTTP access tokens**). Reading and `pr merge-check` need `REPO_READ`; `pr create` needs `REPO_WRITE`; `pr merge` needs `REPO_ADMIN`, because a `REPO_WRITE` token cannot merge (observed on Bitbucket 9.4.11: a Write token got 401 on merge, an Admin token merged). Then store it for the host:
 
 ```sh
 bitbucket-dc-axi config set --host bitbucket.example.com

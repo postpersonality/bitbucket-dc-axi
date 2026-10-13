@@ -91,6 +91,7 @@ describe("bitbucketRequest", () => {
     expect(error.extras.status).toBe(401);
     expect(error.suggestions.join("\n")).toContain("REPO_READ");
     expect(error.suggestions.join("\n")).toContain("REPO_WRITE");
+    expect(error.suggestions.join("\n")).toContain("REPO_ADMIN");
   });
 
   it.each([

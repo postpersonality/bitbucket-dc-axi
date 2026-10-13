@@ -60,7 +60,7 @@ async function exec(args: string[], io: ConfigSetIO = {}): Promise<{ out: string
   }
 }
 
-const RETRY = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
+const RETRY = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to create pull requests, REPO_ADMIN to merge) and enter it again"];
 
 function accepted(user?: string): void {
   fetchMock.mockResolvedValue(response(200, { version: "10.0.1", buildNumber: "10000001" }, user ? { "X-AUSERNAME": user } : {}));
