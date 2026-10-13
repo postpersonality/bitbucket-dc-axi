@@ -11,11 +11,11 @@ metadata:
 
 # bitbucket-dc-axi
 
-Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output. A clean merge-check does not show that the stored token may merge; pr merge can still fail with AUTH_ERROR.
+Read, check, and merge Bitbucket Data Center pull requests by verified commit with agent-efficient output.
 
 ## When to use
 
-Use bitbucket-dc-axi whenever a task needs pull requests on a Bitbucket Data Center instance: listing or reading them, creating one, checking whether one can be merged, merging it only at a verified head commit, or reading the build statuses of a commit.
+Use bitbucket-dc-axi whenever a task needs pull requests on a Bitbucket Data Center instance: listing or reading them, creating one, checking whether one can be merged, merging it only at a verified head commit, or reading the build statuses of a commit. A clean merge-check does not show that the stored token may merge; pr merge can still fail with AUTH_ERROR.
 
 Get every command, flag, and workflow from the live CLI - it is the single source of truth:
 
