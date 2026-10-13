@@ -55,11 +55,14 @@ export function parseArgs(
       continue;
     }
 
-    const value =
-      equals === -1
-        ? args[++i]
-        : arg.slice(equals + 1);
-    if (value === undefined || value === "" || value.startsWith("-")) {
+    // `--flag=value` takes any non-empty value; a separate value may start with
+    // `-` (e.g. a Markdown list item) unless it is one of this command's flags.
+    const value = equals === -1 ? args[++i] : arg.slice(equals + 1);
+    if (
+      value === undefined ||
+      value === "" ||
+      (equals === -1 && isFlagName(value, byFlag))
+    ) {
       throw usageError(`${rawName} requires a value`, command, defs);
     }
 
@@ -101,7 +104,7 @@ export function findRepoFlag(args: string[]): string | undefined {
 
     if (!candidate || candidate.startsWith("-"))
       throw new AxiError(`${arg} requires a value`, "VALIDATION_ERROR", [
-        "Use `-R <workspace/repo>` or `--repo <workspace/repo>`",
+        "Use `-R <host>/<PROJECT>/<repo>` or `--repo <host>/<PROJECT>/<repo>`",
       ]);
     if (value !== undefined)
       throw new AxiError("--repo may only be given once", "VALIDATION_ERROR");
@@ -129,6 +132,11 @@ export function positiveInt(value: string | undefined, flag: string, fallback: n
   if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100)
     throw new AxiError(`${flag} must be an integer from 1 to 100`, "VALIDATION_ERROR");
   return Number(value);
+}
+
+function isFlagName(value: string, byFlag: Map<string, FlagDefinition>): boolean {
+  const equals = value.indexOf("=");
+  return byFlag.has(equals === -1 ? value : value.slice(0, equals));
 }
 
 function usageError(
