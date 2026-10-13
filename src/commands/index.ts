@@ -10,6 +10,5 @@ export {
   configCommand,
   configSet,
   configStatus,
-  readInteractiveLine,
   readTokenFromStdin,
 } from "./config.js";

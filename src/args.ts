@@ -4,12 +4,11 @@ export interface FlagDefinition {
   name: string;
   aliases?: string[];
   boolean?: boolean;
-  repeatable?: boolean;
 }
 
 export interface ParsedArgs {
   positionals: string[];
-  flags: Map<string, string | string[] | boolean>;
+  flags: Map<string, string | boolean>;
 }
 
 const REPO_FLAG: FlagDefinition = { name: "--repo", aliases: ["-R"] };
@@ -27,7 +26,7 @@ export function parseArgs(
   }
 
   const positionals: string[] = [];
-  const flags = new Map<string, string | string[] | boolean>();
+  const flags = new Map<string, string | boolean>();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (!arg.startsWith("-")) {
@@ -66,14 +65,9 @@ export function parseArgs(
       throw usageError(`${rawName} requires a value`, command, defs);
     }
 
-    if (def.repeatable) {
-      const current = flags.get(def.name);
-      flags.set(def.name, [...(Array.isArray(current) ? current : []), value]);
-    } else {
-      if (flags.has(def.name))
-        throw usageError(`${def.name} may only be given once`, command, defs);
-      flags.set(def.name, value);
-    }
+    if (flags.has(def.name))
+      throw usageError(`${def.name} may only be given once`, command, defs);
+    flags.set(def.name, value);
   }
   return { positionals, flags };
 }
@@ -116,11 +110,6 @@ export function findRepoFlag(args: string[]): string | undefined {
 export function stringFlag(parsed: ParsedArgs, name: string): string | undefined {
   const value = parsed.flags.get(name);
   return typeof value === "string" ? value : undefined;
-}
-
-export function stringFlags(parsed: ParsedArgs, name: string): string[] {
-  const value = parsed.flags.get(name);
-  return Array.isArray(value) ? value : [];
 }
 
 export function boolFlag(parsed: ParsedArgs, name: string): boolean {

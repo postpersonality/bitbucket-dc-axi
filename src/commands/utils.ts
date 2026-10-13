@@ -129,10 +129,6 @@ export function jsonArray(value: Json | undefined): Json[] {
   return Array.isArray(value) ? value : [];
 }
 
-export function compact(values: Record<string, Json | undefined>): JsonObject {
-  return Object.fromEntries(Object.entries(values).filter(([, value]) => value !== undefined)) as JsonObject;
-}
-
 export function text(value: JsonObject, key: string): string {
   return typeof value[key] === "string" ? value[key] : "";
 }

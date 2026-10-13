@@ -58,7 +58,7 @@ export async function configSet(args: string[], io: ConfigSetIO = {}): Promise<R
 
   const tokenInput = tokenFromStdin
     ? await readTokenFromStdin(stdin)
-    : await readInteractiveLine("Bitbucket access token: ", true, stdin, stdout);
+    : await readInteractiveLine("Bitbucket access token: ", stdin, stdout);
   if (Buffer.byteLength(tokenInput) > MAX_TOKEN_BYTES)
     throw new AxiError("access token is too large", "VALIDATION_ERROR", [
       "Enter a single valid Bitbucket HTTP access token",
@@ -112,22 +112,19 @@ function hostFlag(parsed: ParsedArgs): string {
   return host;
 }
 
-export async function readInteractiveLine(
+async function readInteractiveLine(
   prompt: string,
-  hidden: boolean,
   input: NodeJS.ReadableStream,
   output: { write(chunk: string): unknown },
 ): Promise<string> {
-  const readlineOutput = hidden
-    ? new Writable({ write(_chunk, _encoding, done) { done(); } })
-    : (output as NodeJS.WritableStream);
-  if (hidden) output.write(prompt);
-  const readline = createInterface({ input, output: readlineOutput, terminal: true });
+  output.write(prompt);
+  const silent = new Writable({ write(_chunk, _encoding, done) { done(); } });
+  const readline = createInterface({ input, output: silent, terminal: true });
   try {
-    return await readline.question(hidden ? "" : prompt);
+    return await readline.question("");
   } finally {
     readline.close();
-    if (hidden) output.write("\n");
+    output.write("\n");
   }
 }
 
