@@ -68,7 +68,7 @@ export async function bitbucketRequest(
         : { "Content-Type": "application/json", "X-Atlassian-Token": "no-check" }),
     },
     ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
-  }, host);
+  }, host, token);
   if (!reply.ok) throw apiError(reply, token, host, options.help);
   return reply.payload;
 }
@@ -81,7 +81,7 @@ export async function validateToken(
   const reply = await send(new URL(`https://${host}/rest/api/1.0/application-properties`), {
     method: "GET",
     headers: { Accept: "application/json", Authorization: `Bearer ${token}` },
-  }, host);
+  }, host, token);
   const retry = ["Create a personal HTTP access token with REPO_READ (REPO_WRITE to merge) and enter it again"];
   if (!reply.ok) {
     throw apiError(reply, token, host, {
@@ -89,7 +89,7 @@ export async function validateToken(
       notFound: [`Check that \`--host ${host}\` is the address of the Bitbucket Data Center server`],
     });
   }
-  const user = reply.headers.get("X-AUSERNAME")?.trim();
+  const user = decodeUser(reply.headers.get("X-AUSERNAME")?.trim());
   if (!user) {
     throw new BitbucketError("Bitbucket did not accept the access token", "AUTH_ERROR", retry, { status: reply.status });
   }
@@ -97,6 +97,15 @@ export async function validateToken(
     ? reply.payload["version"]
     : "unknown";
   return { user, version };
+}
+
+// Bitbucket percent-encodes X-AUSERNAME (`jdoe%40example.com`); a value that does not decode is kept as sent.
+function decodeUser(value: string | undefined): string | undefined {
+  try {
+    return value && decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 // Replace the token first so truncation can never leave part of it behind.
@@ -109,7 +118,7 @@ export function isObject(value: Json | undefined): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-async function send(url: URL, init: RequestInit, host: string): Promise<ServerReply> {
+async function send(url: URL, init: RequestInit, host: string, token: string): Promise<ServerReply> {
   try {
     const response = await globalThis.fetch(url, {
       ...init,
@@ -123,8 +132,16 @@ async function send(url: URL, init: RequestInit, host: string): Promise<ServerRe
         "Check network access to the server and retry",
       ]);
     }
-    throw new AxiError(`Could not reach Bitbucket at ${host}`, "NETWORK_ERROR", [
+    let cause: unknown = error;
+    while (cause instanceof Error && cause.cause instanceof Error) cause = cause.cause;
+    const code = (cause as { code?: unknown } | null)?.code;
+    const reason = redact(`${typeof code === "string" ? `${code}: ` : ""}${cause instanceof Error ? cause.message : String(cause)}`, token);
+    const proxied = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"].some((name) => process.env[name]);
+    throw new AxiError(`Could not reach Bitbucket at ${host}: ${reason}`, "NETWORK_ERROR", [
       "Check network access, DNS, and TLS for the server and retry",
+      ...(proxied && process.env["NODE_USE_ENV_PROXY"] !== "1"
+        ? ["A proxy variable is set but Node's fetch ignores it: rerun with NODE_USE_ENV_PROXY=1 (Node 24.0+ or 22.21+)"]
+        : []),
     ]);
   }
 }
