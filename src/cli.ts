@@ -2,7 +2,16 @@ import { encode } from "@toon-format/toon";
 import { AxiError, runAxiCli } from "axi-sdk-js";
 import { stripRepoFlag } from "./args.js";
 import { BitbucketError, type Json } from "./client.js";
-import { BUILDS_HELP, buildsCommand, CONFIG_HELP, configCommand, HOME_HELP, homeCommand } from "./commands/index.js";
+import {
+  BUILDS_HELP,
+  buildsCommand,
+  CONFIG_HELP,
+  configCommand,
+  HOME_HELP,
+  homeCommand,
+  PR_HELP,
+  prCommand,
+} from "./commands/index.js";
 import { resolveRepo, type RepoContext } from "./context.js";
 import { VERSION } from "./version.js";
 
@@ -24,6 +33,7 @@ export type Handler = (args: string[], ctx?: RepoContext) => Promise<Record<stri
 
 export const HELP: Record<string, string> = {
   home: HOME_HELP,
+  pr: PR_HELP,
   builds: BUILDS_HELP,
   config: CONFIG_HELP,
 };
@@ -86,6 +96,7 @@ export async function main(options: {
     topLevelHelp: TOP_HELP,
     commands: {
       home: wrap(homeCommand),
+      pr: wrap(prCommand),
       builds: wrap(buildsCommand),
       // No repository context; the hidden-input prompt goes to the same stdout.
       config: async (args) => render(await configCommand(args, { stdout })),
