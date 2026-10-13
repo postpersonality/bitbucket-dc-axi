@@ -48,7 +48,7 @@ The repository is taken from the first available source:
 
 | Command | Purpose |
 | --- | --- |
-| `home` (no arguments) | Open pull requests of the current repository |
+| `home` (no arguments) | Open pull requests of the current repository; hints outside a repository; a host without a token or an `origin` that is not a Bitbucket repository fails as in `pr list` |
 | `pr list [--state open\|merged\|declined\|all] [--limit 1-100] [--fields ...]` | List pull requests |
 | `pr view <id\|url> [--full]` | One pull request with a build summary on its head commit |
 | `pr create --title --source [--destination] [--body]` | Create a pull request; the default destination is the repository default branch |

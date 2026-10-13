@@ -1,6 +1,8 @@
+import { decode } from "@toon-format/toon";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { DESCRIPTION } from "../src/cli.js";
 import { loadToken } from "../src/credentials.js";
-import { calls, fakeServer, pullRequest, page, response, routes, run, setOrigin, type FetchMock } from "./helpers.js";
+import { calls, fakeServer, pullRequest, page, REPO, response, routes, run, setOrigin, type FetchMock } from "./helpers.js";
 
 vi.mock("node:child_process");
 vi.mock("../src/credentials.js");
@@ -39,21 +41,52 @@ describe("outside a repository", () => {
     expect(code).toBe(0);
   });
 
-  it.each([[["--json"]], [["home", "--json"]]])("answers %j in JSON", async (argv) => {
-    const { out, code } = await run(argv);
-    expect(JSON.parse(out)).toMatchObject({ repository: "not detected", pull_requests: [] });
+  it("answers the bare call in JSON with the same header", async () => {
+    const { out, code } = await run(["--json"]);
+    const home = JSON.parse(out);
+    expect(home).toMatchObject({ bin: expect.any(String), description: DESCRIPTION, repository: "not detected", pull_requests: [] });
+    expect(home).toEqual(decode((await run([])).out));
+    expect(code).toBe(0);
+  });
+
+  it("answers home in JSON without the header", async () => {
+    const { out, code } = await run(["home", "--json"]);
+    const home = JSON.parse(out);
+    expect(home).not.toHaveProperty("bin");
+    expect(home).toEqual(decode((await run(["home"])).out));
     expect(code).toBe(0);
   });
 });
 
 describe("inside a repository", () => {
-  it.each(["git@github.com:o/r.git", "https://github.com/o/r.git"])("asks to configure the host of %s", async (origin) => {
+  it.each([
+    ["git@github.com:o/r.git", ["home"]],
+    ["https://github.com/o/r.git", []],
+  ])("asks to configure the host of %s", async (origin, argv) => {
     setOrigin(origin);
     vi.mocked(loadToken).mockReturnValue(null);
-    const { out, code } = await run(["home"]);
-    expect(out).toContain("not configured");
+    const { out, code } = await run(argv);
+    expect(out).toContain("code: NOT_CONFIGURED");
     expect(out).toContain("config set --host github.com");
-    expect(code).toBe(0);
+    expect(code).toBe(3);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("asks to configure the host from -R", async () => {
+    setOrigin();
+    vi.mocked(loadToken).mockReturnValue(null);
+    const { out, code } = await run(["home", "-R", REPO]);
+    expect(out).toContain("code: NOT_CONFIGURED");
+    expect(out).toContain("config set --host bitbucket.example.com");
+    expect(code).toBe(3);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([[["home"]], [[]]])("reports an origin that is not a Bitbucket repository for %j", async (argv) => {
+    setOrigin("https://github.com/o/r.git");
+    const { out, code } = await run(argv);
+    expect(out).toContain("code: REPO_NOT_RESOLVED");
+    expect(code).toBe(3);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import { encode } from "@toon-format/toon";
 import { AxiError, runAxiCli } from "axi-sdk-js";
 import { stripRepoFlag } from "./args.js";
@@ -66,7 +67,8 @@ export async function main(options: {
   const given = options.argv ?? process.argv.slice(2);
   const json = given.includes("--json");
   let argv = given.filter((arg) => arg !== "--json");
-  if (json && argv.length === 0) argv = ["home"];
+  const bare = json && argv.length === 0;
+  if (bare) argv = ["home"];
 
   // axi-sdk-js renders a leading-flag error only in TOON.
   const first = argv[0];
@@ -84,8 +86,8 @@ export async function main(options: {
 
   const render = (output: Record<string, Json>) => (json ? JSON.stringify(output) : output);
   // Resolve the repository inside handlers so its errors use the same formatter.
-  const wrap = (handler: Handler) => async (args: string[]) =>
-    render(await handler(stripRepoFlag(args), resolveRepo(args)));
+  const wrap = (handler: Handler, header: Record<string, Json> = {}) => async (args: string[]) =>
+    render({ ...header, ...(await handler(stripRepoFlag(args), resolveRepo(args))) });
 
   await runAxiCli({
     argv,
@@ -95,7 +97,8 @@ export async function main(options: {
     packageName: "bitbucket-dc-axi",
     topLevelHelp: TOP_HELP,
     commands: {
-      home: wrap(homeCommand),
+      // Bare `--json` runs as `home`; the SDK adds its header only to the bare TOON call.
+      home: wrap(homeCommand, bare ? homeHeader() : {}),
       pr: wrap(prCommand),
       builds: wrap(buildsCommand),
       // No repository context; the hidden-input prompt goes to the same stdout.
@@ -111,6 +114,13 @@ export async function main(options: {
       formatError(new AxiError(`Unknown command: ${command}`, "VALIDATION_ERROR", [HELP_HINT]), json).output,
     formatError: (error) => formatError(error, json),
   });
+}
+
+// The header axi-sdk-js puts on the bare call: the binary path with the home directory as `~`.
+function homeHeader(): Record<string, Json> {
+  const bin = process.argv[1] ?? "";
+  const home = homedir();
+  return { bin: bin.startsWith(home) ? `~${bin.slice(home.length)}` : bin, description: DESCRIPTION };
 }
 
 export function formatError(error: unknown, json: boolean): { output: string; exitCode: number } {
